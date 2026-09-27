@@ -3,11 +3,15 @@
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 
 ROOT = Path(__file__).resolve().parent.parent
+ENV_FILE = Path(__file__).with_name(".env")
 
 
 def model_settings() -> dict[str, str]:
+    load_dotenv(ENV_FILE, override=False)
     names = ("AGENT_MODEL", "OPENAI_API_KEY", "OPENAI_BASE_URL")
     values = {name: os.environ.get(name, "").strip() for name in names}
     missing = [name for name, value in values.items() if not value]

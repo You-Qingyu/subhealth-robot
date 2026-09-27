@@ -1,0 +1,49 @@
+name: ros-dev
+
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        ROS_DISTRO: ${ROS_DISTRO:-jazzy}
+        UBUNTU_VERSION: ${UBUNTU_VERSION:-24.04}
+    image: ros-dev:${ROS_DISTRO:-jazzy}
+    network_mode: host
+    init: true
+    # Run as the non-root user so files written into the bind-mounted repo are
+    # owned by the host user. The Dev Container overrides this via `remoteUser`
+    # / `updateRemoteUserUID`.
+    user: ubuntu
+    environment:
+      HOME: /home/ubuntu
+      RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
+      ROS_DOMAIN_ID: "1"
+      # rust-analyzer is started by the VS Code remote extension, not by an
+      # interactive shell. Keep the ROS overlay visible to Cargo build scripts
+      # such as ros-env, which discovers generated Rust interfaces through
+      # AMENT_PREFIX_PATH.
+      AMENT_PREFIX_PATH: /ws/${ROS_DISTRO:-jazzy}/install:/opt/ros/${ROS_DISTRO:-jazzy}
+      CMAKE_PREFIX_PATH: /ws/${ROS_DISTRO:-jazzy}/install:/opt/ros/${ROS_DISTRO:-jazzy}
+      # Keep generated ROS/Cargo state separate for each distro while retaining
+      # the shared named volume. Override ROS_BUILD_ROOT when needed.
+      ROS_BUILD_ROOT: ${ROS_BUILD_ROOT:-/ws/${ROS_DISTRO:-jazzy}}
+    volumes:
+      - ../..:/workspace
+      - ros2rust_ws:/ws
+      # Cache ONLY the Cargo registry. The toolchain lives in the image, so a
+      # fresh/empty volume still works.
+      - cargo_reg:/usr/local/cargo/registry
+    working_dir: /workspace
+    stdin_open: true
+    tty: true
+    command: sleep infinity
+
+volumes:
+  # Declared (not `external`) with an explicit name: Compose creates the volume
+  # when missing and reuses an existing one, so a fresh clone works without a
+  # manual `docker volume create`.
+  ros2rust_ws:
+    name: ros2rust_ws
+  cargo_reg:
+    name: cargo_reg

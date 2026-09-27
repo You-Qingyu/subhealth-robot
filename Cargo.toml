@@ -1,0 +1,33 @@
+[workspace]
+resolver = "2"
+members = [
+    "ros2_ws/src/services/platform",
+    "ros2_ws/src/services/task_repository",
+    "ros2_ws/src/services/sensor",
+    "ros2_ws/src/services/execution",
+    "ros2_ws/src/services/orchestration",
+    "ros2_ws/src/services/gateway",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "Apache-2.0"
+repository = "https://github.com/laipuran/rtos_subhealth"
+
+[workspace.dependencies]
+anyhow = "1"
+futures-core = "0.3"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "sync", "time"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = "warn"

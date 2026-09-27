@@ -1,0 +1,14 @@
+[package]
+name = "orchestration"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "Apache-2.0"
+
+[dependencies]
+platform = { path = "../platform", version = "0.1.0" }
+thiserror = "2"
+
+[dev-dependencies]
+futures-core = "0.3"
+serde_json = "1"

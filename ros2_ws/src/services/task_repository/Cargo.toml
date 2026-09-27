@@ -1,0 +1,15 @@
+[package]
+name = "task_repository"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "Apache-2.0"
+
+[dependencies]
+platform = { path = "../platform", version = "0.1.0" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

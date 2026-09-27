@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>task_repository</name>
+  <version>0.1.0</version>
+  <description>In-memory task repository service crate.</description>
+  <maintainer email="puranlai@qq.com">Duck Ran</maintainer>
+  <license>Apache-2.0</license>
+  <depend>platform</depend>
+  <export><build_type>ament_cargo</build_type></export>
+</package>

@@ -1,0 +1,21 @@
+# Unified task execution goal.
+string task_id
+string device_id
+string primitive
+string payload_json
+int64 deadline_unix_ms
+---
+# Terminal execution result.
+string task_id
+string final_state
+string error_code
+string message
+builtin_interfaces/Time finished_time
+---
+# Incremental execution feedback.
+string task_id
+string state
+float32 progress
+string phase
+string details_json
+builtin_interfaces/Time timestamp

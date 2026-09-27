@@ -1,4 +1,0 @@
-# Robot backend dependencies
-# unitree-sdk2py required for LowCmdRobot and SportClientRobot
-# Install: pip install ~/unitree_sdk2_python/
-transitions>=0.9.0

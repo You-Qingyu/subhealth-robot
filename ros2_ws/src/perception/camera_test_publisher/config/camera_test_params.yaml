@@ -1,9 +1,0 @@
-camera_test_node:
-  ros__parameters:
-    output_topic: /camera/test
-    camera_info_topic: /camera/test/camera_info
-    frame_id: camera_test_frame
-    camera_index: 0
-    fps: 30.0
-    width: 640
-    height: 480

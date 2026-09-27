@@ -1,0 +1,22 @@
+[package]
+name = "ros_task_client"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "Apache-2.0"
+
+[dependencies]
+platform = { path = "../../services/platform", version = "0.1.0" }
+tokio-stream = "0.1"
+rclrs = "0.7"
+# ros-env 0.2.1 selects rosidl_runtime_rs 0.7, while rclrs 0.7 uses 0.6.
+ros-env = "=0.2.0"
+rosidl_runtime_rs = "0.6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+tracing = "0.1"
+
+[package.metadata.ros]

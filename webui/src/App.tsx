@@ -7,25 +7,17 @@ import {
   useNavigate,
   useParams,
 } from "react-router-dom"
-import type { TaskRecord } from "./types/task"
-import type { DiagnosisRecord } from "./types/diagnosis"
+import type { TaskEvent, TaskState } from "./types/task"
 import { useTaskWS } from "./hooks/useTaskWS"
-import { useDiagnosisWS } from "./hooks/useDiagnosisWS"
 import { ToastProvider } from "./components/Toast"
-import { VitalsProvider } from "./context/VitalsContext"
 import TaskNew from "./pages/TaskNew"
 import TaskList from "./pages/TaskList"
 import TaskDetail from "./pages/TaskDetail"
-import MapEditor from "./pages/MapEditor"
-import DiagnosisList from "./pages/DiagnosisList"
-import DiagnosisDetail from "./pages/DiagnosisDetail"
-import VitalsChart from "./components/VitalsChart"
 
 interface AppData {
   refreshKey: number
   bumpRefresh: () => void
-  wsTasks: Record<string, Partial<TaskRecord>>
-  wsDiags: Record<string, Partial<DiagnosisRecord>>
+  wsTasks: Record<string, { state: TaskState }>
 }
 
 const AppDataContext = createContext<AppData | null>(null)
@@ -38,40 +30,18 @@ function useAppData(): AppData {
 
 function DataProvider({ children }: { children: ReactNode }) {
   const [refreshKey, setRefreshKey] = useState(0)
-  const [wsTasks, setWsTasks] = useState<Record<string, Partial<TaskRecord>>>({})
-  const [wsDiags, setWsDiags] = useState<Record<string, Partial<DiagnosisRecord>>>({})
+  const [wsTasks, setWsTasks] = useState<Record<string, { state: TaskState }>>({})
 
-  const handleTaskWs = useCallback((msg: any) => {
-    setWsTasks((prev) => {
-      const cur = prev[msg.goal_id] || {}
-      if (msg.event === "feedback") {
-        return { ...prev, [msg.goal_id]: { ...cur, state: msg.state, progress: msg.progress, current_tag: msg.current_tag, next_tag: msg.next_tag, error_code: msg.error_code, message: msg.message, route: msg.route, finished_stages: msg.finished_stages } }
-      }
-      if (msg.event === "result") {
-        return { ...prev, [msg.goal_id]: { ...cur, state: msg.final_state, final_state: msg.final_state, error_code: msg.error_code, message: msg.message } }
-      }
-      return prev
-    })
-  }, [])
-
-  const handleDiagWs = useCallback((msg: any) => {
-    setWsDiags((prev) => ({
+  const handleTaskWs = useCallback((message: TaskEvent) => {
+    const event = message.event.TaskStateChanged
+    if (!event) return
+    setWsTasks((prev) => ({
       ...prev,
-      [msg.diagnosis_id]: {
-        severity: msg.severity,
-        summary: msg.summary,
-        possible_causes: msg.possible_causes,
-        recommendations: msg.recommendations,
-        confidence: msg.confidence,
-        error_code: msg.error_code,
-        error_message: msg.error_message,
-        metrics: msg.metrics,
-      },
+      [event.task_id]: { state: event.state },
     }))
   }, [])
 
   useTaskWS(handleTaskWs)
-  useDiagnosisWS(handleDiagWs)
 
   return (
     <AppDataContext.Provider
@@ -79,7 +49,6 @@ function DataProvider({ children }: { children: ReactNode }) {
         refreshKey,
         bumpRefresh: () => setRefreshKey((k) => k + 1),
         wsTasks,
-        wsDiags,
       }}
     >
       {children}
@@ -111,55 +80,18 @@ function TasksHome() {
 
 function TaskDetailPage() {
   const { wsTasks } = useAppData()
-  const { goalId } = useParams()
+  const { taskId } = useParams()
   const navigate = useNavigate()
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
       <div className="md:col-span-1" />
       <div className="md:col-span-2 space-y-4">
         <TaskDetail
-          goalId={goalId || null}
+          taskId={taskId || null}
           onBack={() => navigate("/tasks")}
           liveUpdates={wsTasks}
         />
       </div>
-    </div>
-  )
-}
-
-function DiagnosesHome() {
-  const { refreshKey, wsDiags } = useAppData()
-  const navigate = useNavigate()
-  return (
-    <div className="space-y-3">
-      <VitalsChart />
-      <DiagnosisList
-        refreshKey={refreshKey}
-        onSelect={(id) => navigate(`/diagnoses/${id}`)}
-        liveUpdates={wsDiags}
-      />
-    </div>
-  )
-}
-
-function DiagnosesDetail() {
-  const { wsDiags } = useAppData()
-  const { id } = useParams()
-  const navigate = useNavigate()
-  return (
-    <DiagnosisDetail
-      diagnosisId={id || null}
-      onBack={() => navigate("/diagnoses")}
-      liveUpdates={wsDiags}
-    />
-  )
-}
-
-function MapPage() {
-  const navigate = useNavigate()
-  return (
-    <div className="h-screen flex flex-col">
-      <MapEditor onClose={() => navigate("/tasks")} />
     </div>
   )
 }
@@ -173,12 +105,6 @@ function Layout() {
           <NavLink to="/tasks" className={tabLinkClass}>
             Tasks
           </NavLink>
-          <NavLink to="/diagnoses" className={tabLinkClass}>
-            Diagnoses
-          </NavLink>
-          <NavLink to="/map" className="text-sm text-blue-600 hover:underline">
-            Edit Map
-          </NavLink>
         </div>
       </header>
 
@@ -186,10 +112,7 @@ function Layout() {
         <Routes>
           <Route path="/" element={<Navigate to="/tasks" replace />} />
           <Route path="/tasks" element={<TasksHome />} />
-          <Route path="/tasks/:goalId" element={<TaskDetailPage />} />
-          <Route path="/diagnoses" element={<DiagnosesHome />} />
-          <Route path="/diagnoses/:id" element={<DiagnosesDetail />} />
-          <Route path="/map" element={<MapPage />} />
+          <Route path="/tasks/:taskId" element={<TaskDetailPage />} />
           <Route path="*" element={<Navigate to="/tasks" replace />} />
         </Routes>
       </main>
@@ -200,11 +123,9 @@ function Layout() {
 export default function App() {
   return (
     <ToastProvider>
-      <VitalsProvider>
-        <DataProvider>
-          <Layout />
-        </DataProvider>
-      </VitalsProvider>
+      <DataProvider>
+        <Layout />
+      </DataProvider>
     </ToastProvider>
   )
 }

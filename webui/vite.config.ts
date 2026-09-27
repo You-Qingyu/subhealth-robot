@@ -6,8 +6,7 @@ const apiProxy = {
   '/api': {
     target: 'http://127.0.0.1:5000',
     changeOrigin: true,
-    // WebSocket 代理：/api/v1/events 需要 ws:true 才能升级握手，
-    // 否则 vitals / diagnosis 实时推送无法到达前端。
+    // WebSocket 代理：/api/v1/events 需要 ws:true 才能升级握手。
     ws: true,
   },
 }

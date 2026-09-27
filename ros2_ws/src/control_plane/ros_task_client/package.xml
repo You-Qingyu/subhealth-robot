@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>ros_task_client</name>
+  <version>0.1.0</version>
+  <description>Typed Rust ROS ExecuteTask action client.</description>
+  <maintainer email="puranlai@qq.com">Duck Ran</maintainer>
+  <license>Apache-2.0</license>
+  <depend>rclrs</depend>
+  <depend>rosidl_runtime_rs</depend>
+  <depend>task_interfaces</depend>
+  <depend>platform</depend>
+  <export><build_type>ament_cargo</build_type></export>
+</package>

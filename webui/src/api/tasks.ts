@@ -1,37 +1,35 @@
-import type { TaskGoal, TaskRecord, CreateTaskResponse } from "../types/task"
+import type { TaskView } from "../types/task"
 import { parseError } from "./error"
 
 const BASE = "/api/v1"
 
 export async function createTask(
-  goal: TaskGoal,
-  targetDevice = "",
-): Promise<CreateTaskResponse> {
+  deviceId: string,
+  target: number[],
+  deadlineMs: number | null,
+): Promise<TaskView> {
   const res = await fetch(`${BASE}/tasks`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ target_device: targetDevice, goal }),
+    body: JSON.stringify({
+      device_id: deviceId,
+      primitive: "go_to_tag",
+      target,
+      deadline_ms: deadlineMs,
+    }),
   })
   if (!res.ok) throw await parseError(res)
   return res.json()
 }
 
-export async function listTasks(
-  offset = 0,
-  limit = 50,
-): Promise<{ tasks: TaskRecord[]; total: number; offset: number; limit: number }> {
-  const res = await fetch(`${BASE}/tasks?offset=${offset}&limit=${limit}`)
+export async function listTasks(): Promise<TaskView[]> {
+  const res = await fetch(`${BASE}/tasks`)
   if (!res.ok) throw await parseError(res)
   return res.json()
 }
 
-export async function getTask(goalId: string): Promise<TaskRecord> {
-  const res = await fetch(`${BASE}/tasks/${goalId}`)
+export async function getTask(taskId: string): Promise<TaskView> {
+  const res = await fetch(`${BASE}/tasks/${taskId}`)
   if (!res.ok) throw await parseError(res)
   return res.json()
-}
-
-export async function cancelTask(goalId: string): Promise<void> {
-  const res = await fetch(`${BASE}/tasks/${goalId}/cancel`, { method: "POST" })
-  if (!res.ok) throw await parseError(res)
 }

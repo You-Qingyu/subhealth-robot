@@ -1,4 +1,0 @@
-# planner 参数
-planner:
-  ros__parameters:
-    maps_dir: "config/maps"

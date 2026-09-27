@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback } from "react"
-import type { WsMessage } from "../types/task"
+import type { TaskEvent } from "../types/task"
 
-type WsCallback = (msg: WsMessage) => void
+type WsCallback = (event: TaskEvent) => void
 
 const WS_URL = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/api/v1/events`
 const MAX_RETRY_DELAY = 30000
@@ -24,7 +24,7 @@ export function useTaskWS(onMessage: WsCallback) {
     }
     ws.onmessage = (e) => {
       try {
-        const msg: WsMessage = JSON.parse(e.data)
+        const msg: TaskEvent = JSON.parse(e.data)
         onMsgRef.current(msg)
       } catch {
         /* ignore */

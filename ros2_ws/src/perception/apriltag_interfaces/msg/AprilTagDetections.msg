@@ -1,3 +1,0 @@
-builtin_interfaces/Time timestamp
-string frame_id
-apriltag_interfaces/AprilTagDetection[] detections

@@ -1,0 +1,11 @@
+[package]
+name = "execution"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "Apache-2.0"
+
+[dependencies]
+orchestration = { path = "../orchestration", version = "0.1.0" }
+platform = { path = "../platform", version = "0.1.0" }
+ros_task_client = { path = "../../control_plane/ros_task_client", version = "0.1.0" }

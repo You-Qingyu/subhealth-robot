@@ -18,10 +18,8 @@
     "vite": "^8.1.1"
   },
   "dependencies": {
-    "@xyflow/react": "^12.11.2",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "react-router-dom": "^7.18.3",
-    "recharts": "^3.10.1"
+    "react-router-dom": "^7.18.3"
   }
 }

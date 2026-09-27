@@ -1,0 +1,25 @@
+{
+    "name": "ros-subhealth (Jazzy + Rust)",
+    "dockerComposeFile": "../docker/dev/compose.yaml",
+    "service": "dev",
+    "workspaceFolder": "/workspace",
+    "remoteUser": "ubuntu",
+    "updateRemoteUserUID": true,
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "rust-lang.rust-analyzer"
+            ],
+            "settings": {
+                "rust-analyzer.linkedProjects": [
+                    "/workspace/Cargo.toml",
+                    "/workspace/ros2_ws/src/control_plane/ros_task_client/Cargo.toml"
+                ],
+                "rust-analyzer.cargo.buildScripts.enable": true,
+                "rust-analyzer.procMacro.enable": true,
+                "rust-analyzer.showUnlinkedFileNotification": false
+            }
+        }
+    },
+    "postCreateCommand": "sudo chown -R ubuntu:ubuntu /ws /usr/local/cargo /usr/local/rustup 2>/dev/null || true"
+}

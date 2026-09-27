@@ -8,8 +8,9 @@ interface Props {
 
 export default function TaskNew({ onCreated }: Props) {
   const { toast } = useToast()
-  const [type, setType] = useState<"go_to_tag" | "patrol_route" | "hold">("go_to_tag")
+  const [deviceId, setDeviceId] = useState("mock_exec")
   const [tags, setTags] = useState("")
+  const [deadline, setDeadline] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
 
@@ -24,10 +25,16 @@ export default function TaskNew({ onCreated }: Props) {
         .map((s) => Number(s.trim()))
         .filter((n) => !isNaN(n))
 
-      await createTask({
-        type,
-        target_tags: targetTags.length > 0 ? targetTags : undefined,
-      })
+      if (!deviceId.trim()) throw new Error("device ID is required")
+      if (targetTags.length === 0) throw new Error("at least one Tag is required")
+
+      const deadlineMs = deadline ? Date.parse(deadline) : null
+      if (deadline && !Number.isFinite(deadlineMs)) throw new Error("invalid deadline")
+      if (deadlineMs !== null && deadlineMs <= Date.now()) {
+        throw new Error("deadline must be in the future")
+      }
+
+      await createTask(deviceId.trim(), targetTags, deadlineMs)
       setTags("")
       toast("Task created!", "success")
       onCreated()
@@ -44,32 +51,37 @@ export default function TaskNew({ onCreated }: Props) {
       <h2 className="text-lg font-bold">New Task</h2>
 
       <div>
-        <label className="block text-sm font-medium mb-1">Type</label>
-        <select
-          value={type}
-          onChange={(e) => setType(e.target.value as any)}
+        <label className="block text-sm font-medium mb-1">Device ID</label>
+        <input
+          type="text"
+          value={deviceId}
+          onChange={(e) => setDeviceId(e.target.value)}
           className="w-full border rounded px-3 py-2 text-sm"
-        >
-          <option value="go_to_tag">Go to Tag</option>
-          <option value="patrol_route">Patrol Route</option>
-          <option value="hold">Hold</option>
-        </select>
+        />
       </div>
 
-      {type !== "hold" && (
-        <div>
-          <label className="block text-sm font-medium mb-1">
-            Target Tags <span className="text-gray-400">(comma or space separated)</span>
-          </label>
-          <input
-            type="text"
-            value={tags}
-            onChange={(e) => setTags(e.target.value)}
-            placeholder="e.g. 42, 43, 44"
-            className="w-full border rounded px-3 py-2 text-sm"
-          />
-        </div>
-      )}
+      <div>
+        <label className="block text-sm font-medium mb-1">
+          Target Tags <span className="text-gray-400">(comma or space separated)</span>
+        </label>
+        <input
+          type="text"
+          value={tags}
+          onChange={(e) => setTags(e.target.value)}
+          placeholder="e.g. 42, 43, 44"
+          className="w-full border rounded px-3 py-2 text-sm"
+        />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium mb-1">Deadline</label>
+        <input
+          type="datetime-local"
+          value={deadline}
+          onChange={(e) => setDeadline(e.target.value)}
+          className="w-full border rounded px-3 py-2 text-sm mt-2"
+        />
+      </div>
 
       {error && <p className="text-red-600 text-sm">{error}</p>}
 

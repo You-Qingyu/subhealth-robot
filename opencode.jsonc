@@ -1,0 +1,15 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servers": {
+      "robot": {
+        "type": "local",
+        "command": ["/bin/sh", "-c", "export ROS_TASK_CLIENT_CONFIG=\"${ROS_TASK_CLIENT_CONFIG:-$PWD/ros2_ws/config/devices.yaml}\"; exec mcp/.venv/bin/python mcp/server.py"],
+        "cwd": ".",
+        "environment": {
+          "GATEWAY_URL": "http://127.0.0.1:5000"
+        }
+      }
+    }
+  }
+}

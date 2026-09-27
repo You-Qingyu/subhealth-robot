@@ -1,0 +1,4 @@
+# Gateway currently accepts only go_to_tag. Add primitives here when the
+# Gateway and execution layer implement them; this file controls MCP exposure.
+primitives:
+  - go_to_tag

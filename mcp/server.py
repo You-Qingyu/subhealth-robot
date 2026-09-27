@@ -21,9 +21,9 @@ def list_capabilities() -> dict:
 
 
 @mcp.tool()
-async def list_tasks() -> list:
-    """List all Gateway task records (the Gateway currently has no pagination)."""
-    return await request("GET", "/api/v1/tasks")
+async def list_tasks() -> dict:
+    """List all Gateway task records as {"tasks": [...]} (no pagination)."""
+    return {"tasks": await request("GET", "/api/v1/tasks")}
 
 
 @mcp.tool()

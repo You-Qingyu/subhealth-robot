@@ -13,6 +13,7 @@ DISTANCE_TOLERANCE_M = 0.08
 BEARING_TOLERANCE_DEG = 5.0
 FACING_TOLERANCE_DEG = 10.0
 LATERAL_DIRECTION_EPSILON_DEG = 2.0
+APPROACH_MIN_IMAGE_MARGIN_PX = 20.0
 ARRIVAL_CONFIRMATIONS = 3
 NON_CONVERGENCE_CONFIRMATIONS = 3
 MISSING_TAG_TIMEOUT_S = 1.0
@@ -52,34 +53,64 @@ class NavigationResult:
     message: str
 
 
-def decide(pose: TagPose) -> NavigationDecision:
-    """将一个有效位姿转换为到达、失败或连续动作。"""
+def decide(pose: TagPose, phase: str = 'approach') -> NavigationDecision:
+    """按接近或终端校正阶段将位姿转换为连续动作。"""
+    if phase == 'terminal_align':
+        return _terminal_decision(pose)
+    return _approach_decision(pose)
+
+
+def is_arrived(pose: TagPose) -> bool:
+    """判断一次观测是否满足终端停止阈值。"""
+    return _terminal_decision(pose).phase == 'arrived'
+
+
+def _approach_decision(pose: TagPose) -> NavigationDecision:
+    """接近阶段只要求目标居中且留在安全视野内，暂不约束 Tag 朝向。"""
+    if abs(pose.bearing_deg) > BEARING_TOLERANCE_DEG:
+        return _turn_decision(pose, 'approach')
+    if pose.image_margin_px < APPROACH_MIN_IMAGE_MARGIN_PX:
+        return NavigationDecision(
+            phase='fail',
+            action_group=None,
+            message='接近阶段 Tag 投影接近图像边缘，无法安全继续',
+        )
+    if pose.distance_m <= TARGET_DISTANCE_M + DISTANCE_TOLERANCE_M:
+        return NavigationDecision(
+            phase='terminal_align',
+            action_group=None,
+            message='已进入终端距离范围，开始校正 Tag 朝向',
+        )
+    return NavigationDecision(
+        phase='approach',
+        action_group=FORWARD_ACTION,
+        message='接近阶段连续前进，暂不以 Tag 朝向误差切换动作',
+    )
+
+
+def _terminal_decision(pose: TagPose) -> NavigationDecision:
+    """终端阶段同时满足距离、中心和 Tag 平面朝向。"""
     if pose.facing_error_deg > FACING_TOLERANCE_DEG:
         return _lateral_alignment_decision(pose)
     if abs(pose.bearing_deg) > BEARING_TOLERANCE_DEG:
-        return _turn_decision(pose)
+        return _turn_decision(pose, 'terminal_align')
     if pose.distance_m < TARGET_DISTANCE_M - DISTANCE_TOLERANCE_M:
         return NavigationDecision(
-            phase='retreat',
+            phase='terminal_align',
             action_group=BACKWARD_ACTION,
-            message='距离小于停止范围，连续后退并实时观测',
+            message='终端距离过近，连续后退并实时观测',
         )
     if pose.distance_m > TARGET_DISTANCE_M + DISTANCE_TOLERANCE_M:
         return NavigationDecision(
             phase='approach',
             action_group=FORWARD_ACTION,
-            message='距离大于停止范围，连续前进并实时观测',
+            message='终端校正后距离过远，返回接近阶段',
         )
     return NavigationDecision(
         phase='arrived',
         action_group=None,
         message='距离、水平方位和标签朝向均在停止范围内',
     )
-
-
-def is_arrived(pose: TagPose) -> bool:
-    """判断一次观测是否满足停止阈值。"""
-    return decide(pose).phase == 'arrived'
 
 
 class NavigationController:
@@ -124,6 +155,7 @@ class NavigationController:
         deadline_unix_ms: int,
     ) -> NavigationResult:
         has_moved = False
+        phase = 'approach'
         while True:
             failure = self._check_stop_conditions(deadline_unix_ms)
             if failure:
@@ -135,7 +167,7 @@ class NavigationController:
             pose = self._observe_tag(tag_id, has_moved, deadline_unix_ms)
             if isinstance(pose, NavigationResult):
                 return pose
-            decision = decide(pose)
+            decision = decide(pose, phase)
             if decision.phase == 'fail':
                 failure = self._confirm_non_convergence(
                     tag_id,
@@ -158,7 +190,11 @@ class NavigationController:
                     self._publish_target_arrived(tag_id, index, total)
                     return confirmation
                 continue
+            if decision.action_group is None:
+                phase = decision.phase
+                continue
 
+            phase = decision.phase
             segment_result = self._run_motion_segment(
                 tag_id,
                 decision,
@@ -182,6 +218,7 @@ class NavigationController:
             camera=self._camera,
             tag_id=tag_id,
             action_group=decision.action_group,
+            phase=decision.phase,
             is_cancel_requested=self._is_cancel_requested,
             deadline_unix_ms=deadline_unix_ms,
         )
@@ -242,7 +279,7 @@ class NavigationController:
             pose = self._observe_tag(tag_id, True, deadline_unix_ms)
             if isinstance(pose, NavigationResult):
                 return pose
-            if decide(pose).phase != 'fail':
+            if decide(pose, 'terminal_align').phase != 'fail':
                 return None
             poses.append(pose)
         return NavigationResult(False, 'NON_CONVERGENT_POSE', message)
@@ -286,12 +323,14 @@ class _ContinuousObservationMonitor:
         camera,
         tag_id: int,
         action_group: str | None,
+        phase: str,
         is_cancel_requested: Callable[[], bool],
         deadline_unix_ms: int,
     ) -> None:
         self._camera = camera
         self._tag_id = tag_id
         self._action_group = action_group
+        self._phase = phase
         self._is_cancel_requested = is_cancel_requested
         self._deadline_unix_ms = deadline_unix_ms
         self._arrived_frames = 0
@@ -304,7 +343,7 @@ class _ContinuousObservationMonitor:
         pose = self._camera.observe(self._tag_id)
         if pose is None:
             return MotionMonitorDecision(True, 'lost')
-        decision = decide(pose)
+        decision = decide(pose, self._phase)
         if decision.phase == 'arrived':
             self._arrived_frames += 1
             if self._arrived_frames >= ARRIVAL_CONFIRMATIONS:
@@ -313,7 +352,10 @@ class _ContinuousObservationMonitor:
         self._arrived_frames = 0
         if decision.phase == 'fail':
             return MotionMonitorDecision(True, 'replan')
-        if decision.action_group != self._action_group:
+        if (
+            decision.action_group != self._action_group
+            or decision.phase != self._phase
+        ):
             return MotionMonitorDecision(True, 'replan')
         return MotionMonitorDecision(False, 'continue')
 
@@ -342,15 +384,15 @@ def _lateral_alignment_decision(pose: TagPose) -> NavigationDecision:
     )
 
 
-def _turn_decision(pose: TagPose) -> NavigationDecision:
+def _turn_decision(pose: TagPose, phase: str) -> NavigationDecision:
     if pose.bearing_deg < 0:
         return NavigationDecision(
-            phase='turn',
+            phase=phase,
             action_group=TURN_LEFT_ACTION,
             message='标签中心在相机左侧，连续左转并实时观测',
         )
     return NavigationDecision(
-        phase='turn',
+        phase=phase,
         action_group=TURN_RIGHT_ACTION,
         message='标签中心在相机右侧，连续右转并实时观测',
     )

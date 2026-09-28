@@ -31,6 +31,7 @@ class TagPose:
     normal_bearing_deg: float
     facing_error_deg: float
     reprojection_error_px: float
+    image_margin_px: float
 
 
 class TagPoseEstimator:
@@ -101,7 +102,15 @@ class TagPoseEstimator:
             self._tag_corners, rotation, translation,
             self._camera_matrix, self._distortion,
         )
-        error = np.linalg.norm(projected.reshape(4, 2) - image_corners, axis=1)
+        projected_corners = projected.reshape(4, 2)
+        error = np.linalg.norm(projected_corners - image_corners, axis=1)
+        image_width, image_height = CALIBRATED_IMAGE_SIZE
+        image_margin = min(
+            float(projected_corners[:, 0].min()),
+            float(image_width - projected_corners[:, 0].max()),
+            float(projected_corners[:, 1].min()),
+            float(image_height - projected_corners[:, 1].max()),
+        )
         return TagPose(
             tag_id=tag_id,
             distance_m=distance,
@@ -114,4 +123,5 @@ class TagPoseEstimator:
             ),
             facing_error_deg=math.degrees(math.acos(max(-1.0, min(1.0, facing_cosine)))),
             reprojection_error_px=float(np.mean(error)),
+            image_margin_px=image_margin,
         )

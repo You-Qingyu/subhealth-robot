@@ -31,6 +31,8 @@ ros2_ws/src/endpoints/                正式设备 endpoint 节点
 ros2_ws/src/services/                 Rust 服务：platform、repository、sensor、
                                       execution、orchestration、gateway
 webui/                                React/Vite 前端
+mcp/                                  本地 MCP 工具：Gateway HTTP/WS 入口
+agent/                                LangChain 智能体 CLI（通过 MCP 调用 Gateway）
 docker/dev/                           Humble/Jazzy 开发容器配置
 ```
 
@@ -100,4 +102,6 @@ execution device。
 - [设计决策](docs/decisions/README.md)
 - [构建与运行](docs/guide/getting-started.md)
 - [ROS 2 RFC mock 指南](docs/guide/ros-mocks.md)
+- [本地 MCP 工具与 OpenCode 接入](mcp/README.md)
+- [LangChain 智能体 CLI](agent/README.md)
 - [TonyPi 真机执行 endpoint](docs/guide/tonypi-exec.md)

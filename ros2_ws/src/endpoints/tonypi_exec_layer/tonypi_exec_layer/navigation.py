@@ -23,7 +23,7 @@ TURN_LEFT_ACTION = 'turn_left_small_step'
 TURN_RIGHT_ACTION = 'turn_right_small_step'
 LEFT_MOVE_ACTION = 'left_move'
 RIGHT_MOVE_ACTION = 'right_move'
-FORWARD_ACTION = 'go_forward_one_small_step'
+FORWARD_ACTION = 'go_forward_one_step'
 BACKWARD_ACTION = 'back_one_step'
 REQUIRED_ACTION_GROUPS = (
     TURN_LEFT_ACTION,

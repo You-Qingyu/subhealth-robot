@@ -45,7 +45,7 @@ Tag ID 映射为固定动作。状态机只调用 `observe_tags()` 和 `execute_
 初始或途中丢失目标时，只执行有限的小步原地转体搜索，不能盲目前进或横移。
 预设的搜索角 `theta=90°` 对应光轴左右各 45°，接近角 `alpha=60°` 对应
 机身正前方左右各 30°；这两个角度不是实测相机视场。超出接近角先逐步转体，
-进入接近角后以 `go_forward_one_small_step ×1` 接近。进入 `0.50 ± 0.08 m`
+进入接近角后以 `go_forward_one_step ×1` 接近。进入 `0.50 ± 0.08 m`
 距离范围后，终端阶段先使 bearing 绝对值不超过 `5°`，再按 Tag 法线的有符号
 偏差左右移动；每步停稳后重新检查距离、bearing 和 `facing_error`。三者分别
 满足 `0.50 ± 0.08 m`、`≤5°`、`≤10°` 且连续三帧才算到达。无进展和
@@ -100,7 +100,7 @@ TonyPi SDK 的 `ActionGroupControl.runActionGroup()` 会在内部捕获底层异
 当前版本只能可靠报告 SDK 初始化失败、payload 或 Tag 校验失败、deadline、取消、busy 和动作组文件缺失；底层执行错误只能记录日志。修复该缺陷需要修改 SDK 或绕过 SDK 重写动作组执行逻辑，当前不做这两种高风险改动。
 
 TonyPi 的 `runActionGroup()` 对 `go_forward` / `back` 有特殊起止逻辑；当前
-导航使用普通的 `go_forward_one_small_step` 和 `back_one_step`，以及有限
+导航使用普通的 `go_forward_one_step` 和 `back_one_step`，以及有限
 横移、小步转体动作，均以 `times=1` 执行。取消或 deadline 时动作线程请求
 `stopActionGroup()` 并等待结束；SDK 的普通动作组不能在帧组中途安全中断。
 SDK 可能吞掉底层执行异常，因此动作线程正常退出只代表 SDK 调用完成，不能

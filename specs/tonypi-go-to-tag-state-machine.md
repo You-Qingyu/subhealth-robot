@@ -68,7 +68,7 @@ def observe_tags() -> FrameObservation: ...
 - `|bearing| > 30°`：回 `SEARCH_ALIGN`，通过转体重新对准；不可在本状态
   盲目前进。
 - Tag 可见、在 `alpha` 内、距离大于 `0.58 m`：执行一次有限的
-  `go_forward_one_small_step`，停稳后重新观测。
+  `go_forward_one_step`，停稳后重新观测。
 - 距离进入 `[0.42, 0.58] m`：进入 `TERMINAL_ALIGN`。接近阶段不以
   `facing_error` 决定横移。
 - 距离小于 `0.42 m`：转入终端距离修正，避免继续前进。
@@ -100,7 +100,7 @@ def observe_tags() -> FrameObservation: ...
 
 ## 实现前需验证的硬件边界
 
-- `go_forward_one_small_step`、转体、横移及有限后退动作是否都能在 SDK 下按
+- `go_forward_one_step`、转体、横移及有限后退动作是否都能在 SDK 下按
   `times=1` 完整执行和可靠停止；特别是旧 `back` 的 SDK 起步/结束行为不同于
   普通动作组，不能直接当作一小步后退。
 - 云台回正和动作组执行期间 SDK/相机是否保持独占；动作期间取消与 deadline

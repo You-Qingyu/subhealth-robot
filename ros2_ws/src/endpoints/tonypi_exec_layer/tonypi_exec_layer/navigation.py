@@ -12,6 +12,7 @@ DISTANCE_TOLERANCE_M = 0.08
 BEARING_TOLERANCE_DEG = 5.0
 FACING_TOLERANCE_DEG = 10.0
 ARRIVAL_CONFIRMATIONS = 3
+NON_CONVERGENCE_CONFIRMATIONS = 3
 MISSING_TAG_TIMEOUT_S = 1.0
 DEFAULT_TASK_TIMEOUT_S = 120.0
 
@@ -137,7 +138,15 @@ class NavigationController:
                 return pose
             decision = decide(pose)
             if decision.phase == 'fail':
-                return NavigationResult(False, 'NON_CONVERGENT_POSE', decision.message)
+                failure = self._confirm_non_convergence(
+                    tag_id,
+                    pose,
+                    decision.message,
+                    deadline_unix_ms,
+                )
+                if failure is not None:
+                    return failure
+                continue
             if decision.phase == 'arrived':
                 confirmation = self._confirm_arrival(
                     tag_id, pose, deadline_unix_ms
@@ -174,7 +183,15 @@ class NavigationController:
             return pose, False
         decision = decide(pose)
         if decision.phase == 'fail':
-            return NavigationResult(False, 'NON_CONVERGENT_POSE', decision.message), False
+            failure = self._confirm_non_convergence(
+                tag_id,
+                pose,
+                decision.message,
+                deadline_unix_ms,
+            )
+            if failure is not None:
+                return failure, False
+            return NavigationResult(True, '', '重新观测后无需执行当前动作'), False
         if decision.phase == 'arrived':
             return NavigationResult(True, '', 'Target already reached'), False
         failure = self._check_stop_conditions(deadline_unix_ms)
@@ -182,6 +199,27 @@ class NavigationController:
             return failure, False
         self._run_action(decision.action_group)
         return NavigationResult(True, '', decision.message), True
+
+    def _confirm_non_convergence(
+        self,
+        tag_id: int,
+        first_pose: TagPose,
+        message: str,
+        deadline_unix_ms: int,
+    ) -> NavigationResult | None:
+        """过滤动作后短暂抖动，只在连续三帧确认后报告不可收敛。"""
+        poses = [first_pose]
+        while len(poses) < NON_CONVERGENCE_CONFIRMATIONS:
+            failure = self._check_stop_conditions(deadline_unix_ms)
+            if failure:
+                return failure
+            pose = self._observe_tag(tag_id, True, deadline_unix_ms)
+            if isinstance(pose, NavigationResult):
+                return pose
+            if decide(pose).phase != 'fail':
+                return None
+            poses.append(pose)
+        return NavigationResult(False, 'NON_CONVERGENT_POSE', message)
 
     def _confirm_arrival(
         self,

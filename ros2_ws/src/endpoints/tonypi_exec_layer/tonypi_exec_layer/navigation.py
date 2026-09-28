@@ -91,7 +91,7 @@ def _approach_decision(pose: TagPose) -> NavigationDecision:
 def _terminal_decision(pose: TagPose) -> NavigationDecision:
     """终端阶段同时满足距离、中心和 Tag 平面朝向。"""
     if pose.facing_error_deg > FACING_TOLERANCE_DEG:
-        return _lateral_alignment_decision(pose)
+        return _lateral_alignment_decision(pose, 'terminal_align')
     if abs(pose.bearing_deg) > BEARING_TOLERANCE_DEG:
         return _turn_decision(pose, 'terminal_align')
     if pose.distance_m < TARGET_DISTANCE_M - DISTANCE_TOLERANCE_M:
@@ -360,7 +360,10 @@ class _ContinuousObservationMonitor:
         return MotionMonitorDecision(False, 'continue')
 
 
-def _lateral_alignment_decision(pose: TagPose) -> NavigationDecision:
+def _lateral_alignment_decision(
+    pose: TagPose,
+    phase: str,
+) -> NavigationDecision:
     lateral_error = pose.normal_bearing_deg - pose.bearing_deg
     if abs(lateral_error) <= LATERAL_DIRECTION_EPSILON_DEG:
         return NavigationDecision(
@@ -373,12 +376,12 @@ def _lateral_alignment_decision(pose: TagPose) -> NavigationDecision:
         )
     if lateral_error > 0:
         return NavigationDecision(
-            phase='lateral_align',
+            phase=phase,
             action_group=LEFT_MOVE_ACTION,
             message='标签法线方向需要向左侧移，连续观测中',
         )
     return NavigationDecision(
-        phase='lateral_align',
+        phase=phase,
         action_group=RIGHT_MOVE_ACTION,
         message='标签法线方向需要向右侧移，连续观测中',
     )

@@ -19,6 +19,14 @@ TAG_FAMILIES = {
 
 
 @dataclass(frozen=True)
+class TagTransform:
+    """Tag 到相机的刚体变换，矩阵方向为 ``camera <- tag``。"""
+
+    rotation_c_tag: tuple[tuple[float, float, float], ...]
+    translation_c_tag: tuple[float, float, float]
+
+
+@dataclass(frozen=True)
 class TagPose:
     """指定 Tag 在相机坐标系中的一次位姿观测，距离单位为米。"""
 
@@ -32,6 +40,7 @@ class TagPose:
     facing_error_deg: float
     reprojection_error_px: float
     image_margin_px: float
+    transform: TagTransform
 
 
 class TagPoseEstimator:
@@ -124,4 +133,11 @@ class TagPoseEstimator:
             facing_error_deg=math.degrees(math.acos(max(-1.0, min(1.0, facing_cosine)))),
             reprojection_error_px=float(np.mean(error)),
             image_margin_px=image_margin,
+            transform=TagTransform(
+                rotation_c_tag=tuple(
+                    tuple(float(value) for value in row)
+                    for row in matrix
+                ),
+                translation_c_tag=tuple(float(value) for value in translation_vector),
+            ),
         )

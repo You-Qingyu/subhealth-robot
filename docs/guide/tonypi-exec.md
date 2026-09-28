@@ -31,15 +31,22 @@ make run endpoint DEVICE_TYPE=tonypi
 
 启动 endpoint 会初始化 TonyPi SDK 和串口，但不会主动调用动作组。收到合法 goal 后才可能让机器人运动。
 
-## 第一版动作映射
+## AprilTag 闭环导航
 
-```text
-Tag 1 → turn_left
-Tag 2 → go_forward_one_step
-Tag 3 → turn_right
-```
+endpoint 只接受 `go_to_tag`，`target_tags` 是按顺序到达的 AprilTag ID，不再把
+Tag ID 映射为固定动作。每个目标都按“云台置正前方 → 获取新鲜图像 → 判断 →
+至多执行一个有限动作 → 重新观测”的循环处理；目标稳定满足停止条件后才发布该
+目标的路线进度。
 
-第一版只支持 `go_to_tag`，不读取摄像头；`target_tags` 按顺序逐个执行。
+导航期间云台必须保持相机光轴与机身正前方对齐。每次机身动作前，endpoint 都会
+将 PWM 舵机 1/2 置于 `1500/1435`，等待约 0.2 秒稳定，再重新观测后执行动作。
+这两个值已在真机上确认对应期望的正前方姿态。
+
+当前停止条件为：相机光心到 Tag 中心距离 `0.50 ± 0.08 m`、水平方位角绝对值
+不超过 `5°`、标签相对朝向误差不超过 `10°`，并连续满足 3 帧。目标初始不可见
+直接失败；机身动作后短暂丢失目标时最多等待 1 秒。若水平方位已对齐但标签朝向
+误差仍超过阈值，当前版本因不支持侧向调整而失败。没有上层 deadline 时，endpoint
+为整条路线使用 120 秒默认期限。
 
 ## AprilTag 位姿观测（离线、只读）
 
@@ -71,12 +78,11 @@ ros2 run tonypi_exec_layer tonypi_observe_tag \
 `facing_error_deg` 是标签法线与视线的夹角，`reprojection_error_px` 是角点
 重投影平均误差。目标停止距离为相机光心到 Tag 中心 0.50 m。将同一张 10 cm
 实物标签分别放在几个已测量的静止位置，采集多张图像，核对距离和朝向的偏差及
-波动后再定到达容差。用户已通过多轮实物观测确认距离和角度测算准确；到达容差
-和闭环运动策略尚未确定，这些值不能直接作为运动闭环阈值。
+波动。用户已通过多轮实物观测确认距离和角度测算准确；上述阈值是第一版闭环
+初始值。
 
 旧版 TonyPi 示例通过 `hiwonder.apriltag` 检测，但其依赖的动态库不一定随真机
-安装；离线入口使用 OpenCV AprilTag 字典与 `solvePnP`。现有 endpoint 仍执行
-固定动作映射，尚未使用位姿观测。
+安装；endpoint 使用 OpenCV AprilTag 字典与 `solvePnP`，并复用同一相机标定文件。
 
 ## 已知缺陷
 
@@ -84,4 +90,7 @@ TonyPi SDK 的 `ActionGroupControl.runActionGroup()` 会在内部捕获底层异
 
 当前版本只能可靠报告 SDK 初始化失败、payload 或 Tag 校验失败、deadline、取消、busy 和动作组文件缺失；底层执行错误只能记录日志。修复该缺陷需要修改 SDK 或绕过 SDK 重写动作组执行逻辑，当前不做这两种高风险改动。
 
-TonyPi 的 `runActionGroup()` 还包含前进/后退动作的特殊起始和结束逻辑，动作组调用次数及实际步幅由 SDK 和 `.d6a` 文件共同决定。endpoint 不自行重写这套逻辑，因此第一版的“执行一次动作组”不等价于可精确控制一个物理步长；后续视觉导航阶段需要重新验证动作组语义。
+TonyPi 的 `runActionGroup()` 还包含前进/后退动作的特殊起始和结束逻辑，动作组调用次数及实际步幅由 SDK 和 `.d6a` 文件共同决定。当前导航使用有限动作组
+`turn_left_small_step`、`turn_right_small_step`、`go_forward_one_small_step`
+和已实测过一次的 `back_one_step`；一次调用仍不代表精确的物理步长，闭环依靠
+下一帧位姿重新决策，并受 deadline 限制而不设置动作次数上限。

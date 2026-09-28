@@ -1,4 +1,4 @@
-"""TonyPi 动作组 ROS 2 action server。"""
+"""TonyPi AprilTag 闭环导航 ROS 2 action server。"""
 
 import json
 import os
@@ -13,23 +13,43 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from task_interfaces.action import ExecuteTask
 
-from .contract import InvalidPayload, UnsupportedPrimitive, UnsupportedTag, parse_payload
-from .execution import execution_steps
+from .camera import CameraObservationError, TagCamera
+from .contract import InvalidPayload, UnsupportedPrimitive, parse_payload
+from .head import HeadAligner
+from .navigation import (
+    DEFAULT_TASK_TIMEOUT_S,
+    NavigationController,
+    REQUIRED_ACTION_GROUPS,
+)
 
 
 class TonyPiExecLayerNode(Node):
-    """提供第一版 TonyPi ROS 2 执行 contract 的 action server。"""
+    """提供 TonyPi AprilTag 闭环导航 action server。"""
 
     def __init__(self) -> None:
         super().__init__('tonypi_exec_layer')
         self.declare_parameter('action_name', '/tonypi/execute_task')
         self.declare_parameter('device_id', 'tonypi')
+        self.declare_parameter('camera_device', '/dev/video0')
+        self.declare_parameter('tag_family', '36h11')
+        self.declare_parameter('camera_warmup_frames', 10)
 
         action_name = str(self.get_parameter('action_name').value)
         self._device_id = str(self.get_parameter('device_id').value)
         self._tonypi_root = os.environ.get('TONYPI_ROOT', '/home/pi/TonyPi')
+        self._camera_device = str(self.get_parameter('camera_device').value)
+        self._tag_family = str(self.get_parameter('tag_family').value)
+        self._camera_warmup_frames = int(
+            self.get_parameter('camera_warmup_frames').value
+        )
         self._sdk = None
+        self._head = None
         self._sdk_error = self._initialize_sdk()
+        if not self._sdk_error:
+            try:
+                self._head = HeadAligner(self._sdk)
+            except Exception as error:  # noqa: BLE001 - 统一报告硬件初始化错误
+                self._sdk_error = f'could not initialize TonyPi head control: {error}'
         self._active_goal = False
         self._goal_state_lock = threading.Lock()
         self._action_server = ActionServer(
@@ -58,7 +78,7 @@ class TonyPiExecLayerNode(Node):
         except Exception as error:  # noqa: BLE001 - 统一报告硬件初始化错误
             return f'could not initialize TonyPi SDK: {error}'
         self._sdk = action_group_control
-        return ''
+        return None
 
     def goal_callback(self, goal_request: ExecuteTask.Goal) -> GoalResponse:
         """校验并接受最多一个正在执行的合法 goal。"""
@@ -66,7 +86,7 @@ class TonyPiExecLayerNode(Node):
             return GoalResponse.REJECT
         try:
             self._validate_goal(goal_request)
-        except (InvalidPayload, UnsupportedPrimitive, UnsupportedTag, ValueError) as error:
+        except (InvalidPayload, UnsupportedPrimitive, ValueError) as error:
             self._release_goal_slot()
             self.get_logger().warning(f'rejecting goal: {error}')
             return GoalResponse.REJECT
@@ -77,7 +97,7 @@ class TonyPiExecLayerNode(Node):
         return CancelResponse.ACCEPT
 
     def execute_callback(self, goal_handle) -> ExecuteTask.Result:
-        """按目标顺序执行动作组并发布反馈和终态结果。"""
+        """按目标顺序执行 AprilTag 闭环导航并发布终态结果。"""
         request = goal_handle.request
         try:
             if self._sdk_error:
@@ -87,8 +107,8 @@ class TonyPiExecLayerNode(Node):
                     self._sdk_error,
                 )
 
-            steps = self._prepare_steps(request)
-            missing = self._missing_action_groups(steps)
+            payload = parse_payload(request.primitive, request.payload_json)
+            missing = self._missing_action_groups()
             if missing:
                 message = f'missing action group files: {", ".join(missing)}'
                 self.get_logger().error(message)
@@ -98,7 +118,8 @@ class TonyPiExecLayerNode(Node):
                     message,
                 )
 
-            return self._execute_steps(goal_handle, request, steps)
+            deadline = self._effective_deadline(request.deadline_unix_ms)
+            return self._execute_navigation(goal_handle, request, payload, deadline)
         except Exception as error:  # noqa: BLE001 - 统一转换为 endpoint 结果
             self.get_logger().exception(f'task execution failed: {error}')
             return self._abort_result(
@@ -109,43 +130,64 @@ class TonyPiExecLayerNode(Node):
         finally:
             self._release_goal_slot()
 
-    def _prepare_steps(self, request):
-        payload = parse_payload(request.primitive, request.payload_json)
-        return execution_steps(payload['target_tags'])
-
-    def _execute_steps(self, goal_handle, request, steps) -> ExecuteTask.Result:
-        executed_action_groups = []
-        for step in steps:
-            if self._deadline_expired(request.deadline_unix_ms):
-                return self._abort_result(
-                    goal_handle,
-                    'DEADLINE_EXCEEDED',
-                    'Task deadline elapsed before the next action',
-                )
-            if goal_handle.is_cancel_requested:
-                return self._abort_result(
-                    goal_handle,
-                    'CANCEL_REQUESTED',
-                    'Cancellation observed before the next action',
-                )
-
-            self._run_action_group(step.action_group, request.task_id)
-            executed_action_groups.append(step.action_group)
-            self._publish_feedback(goal_handle, step, executed_action_groups)
-            self.get_logger().info(
-                f'task_id={request.task_id} tag_id={step.tag_id} '
-                f'action_group={step.action_group} '
-                f'executed_action_groups={executed_action_groups}'
-            )
-
-        if goal_handle.is_cancel_requested:
+    def _execute_navigation(
+        self,
+        goal_handle,
+        request,
+        payload: dict,
+        deadline_unix_ms: int,
+    ) -> ExecuteTask.Result:
+        calibration_path = os.path.join(
+            self._tonypi_root,
+            'Functions/CameraCalibration/calibration_param.npz',
+        )
+        if not os.path.isfile(calibration_path):
             return self._abort_result(
                 goal_handle,
-                'CANCEL_REQUESTED',
-                'Cancellation observed after the current action',
+                'CALIBRATION_MISSING',
+                f'camera calibration file not found: {calibration_path}',
+            )
+        try:
+            with TagCamera(
+                self._camera_device,
+                calibration_path,
+                self._tag_family,
+                self._camera_warmup_frames,
+            ) as camera:
+                controller = NavigationController(
+                    camera=camera,
+                    head=self._head,
+                    run_action=lambda action_group: self._run_action_group(
+                        action_group,
+                        request.task_id,
+                    ),
+                    is_cancel_requested=lambda: goal_handle.is_cancel_requested,
+                    publish_target_arrived=lambda tag_id, index, total: (
+                        self._publish_target_arrived(
+                            goal_handle,
+                            tag_id,
+                            index,
+                            total,
+                        )
+                    ),
+                )
+                navigation_result = controller.execute(
+                    payload['target_tags'],
+                    deadline_unix_ms,
+                )
+        except CameraObservationError as error:
+            return self._abort_result(goal_handle, 'CAMERA_FAILED', str(error))
+        except ValueError as error:
+            return self._abort_result(goal_handle, 'CAMERA_CONFIG_FAILED', str(error))
+
+        if not navigation_result.succeeded:
+            return self._abort_result(
+                goal_handle,
+                navigation_result.error_code,
+                navigation_result.message,
             )
         goal_handle.succeed()
-        return self._result(goal_handle, 'succeeded', '', 'Task completed')
+        return self._result(goal_handle, 'succeeded', '', navigation_result.message)
 
     def _validate_goal(self, request: ExecuteTask.Goal) -> None:
         if not request.task_id:
@@ -167,13 +209,13 @@ class TonyPiExecLayerNode(Node):
         with self._goal_state_lock:
             self._active_goal = False
 
-    def _missing_action_groups(self, steps) -> list[str]:
+    def _missing_action_groups(self) -> list[str]:
         action_group_root = os.path.join(self._tonypi_root, 'ActionGroups')
         return [
-            step.action_group
-            for step in steps
+            action_group
+            for action_group in REQUIRED_ACTION_GROUPS
             if not os.path.isfile(
-                os.path.join(action_group_root, f'{step.action_group}.d6a')
+                os.path.join(action_group_root, f'{action_group}.d6a')
             )
         ]
 
@@ -186,18 +228,24 @@ class TonyPiExecLayerNode(Node):
             path=os.path.join(self._tonypi_root, 'ActionGroups') + os.sep,
         )
 
-    def _publish_feedback(self, goal_handle, step, executed_action_groups) -> None:
+    def _publish_target_arrived(
+        self,
+        goal_handle,
+        tag_id: int,
+        index: int,
+        total: int,
+    ) -> None:
         feedback = ExecuteTask.Feedback()
         feedback.task_id = goal_handle.request.task_id
         feedback.state = 'running'
-        feedback.progress = step.progress
-        feedback.phase = f'tag_{step.tag_id}'
+        feedback.progress = (index + 1) / total
+        feedback.phase = f'tag_{tag_id}'
         feedback.details_json = json.dumps(
             {
-                'current_tag': step.tag_id,
-                'next_tag': step.next_tag,
-                'action_group': step.action_group,
-                'executed_action_groups': executed_action_groups,
+                'current_tag': tag_id,
+                'target_index': index,
+                'target_count': total,
+                'stable_observations': 3,
             },
             separators=(',', ':'),
             sort_keys=True,
@@ -222,10 +270,10 @@ class TonyPiExecLayerNode(Node):
         goal_handle.abort()
         return self._result(goal_handle, 'failed', error_code, message)
 
-    def _deadline_expired(self, deadline_unix_ms: int) -> bool:
-        if deadline_unix_ms == 0:
-            return False
-        return time.time_ns() // 1_000_000 >= deadline_unix_ms
+    def _effective_deadline(self, deadline_unix_ms: int) -> int:
+        if deadline_unix_ms:
+            return deadline_unix_ms
+        return time.time_ns() // 1_000_000 + int(DEFAULT_TASK_TIMEOUT_S * 1000)
 
     def destroy_node(self) -> None:
         """销毁 action server 和 ROS node，不追加复位动作。"""

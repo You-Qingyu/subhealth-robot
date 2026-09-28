@@ -46,8 +46,8 @@ Tag 3 → turn_right
 图像采集与位姿测量入口都与运动 endpoint 独立，均不导入 `ActionGroupControl`
 或发送动作。`tonypi_capture_frame` 从指定 V4L2 设备读取有限帧，保存一张未经
 处理的原图；要求运行用户属于 `video` 组、重新登录后具有 `/dev/video0` 的
-读取权限，且摄像头未被其他进程独占。当前真机的 `ubuntu` 用户尚不属于 `video`
-组，需要在真机上由有权限的用户完成授权后才能运行采集入口。
+读取权限，且摄像头未被其他进程独占。
+
 `tonypi_observe_tag` 只读取本地图片和
 `TONYPI_ROOT/Functions/CameraCalibration/calibration_param.npz`，不会打开摄像头、
 导入运动 SDK。真机需有 `python3-opencv`、`python3-numpy`。
@@ -62,7 +62,8 @@ ros2 run tonypi_exec_layer tonypi_observe_tag \
   --tag-id 1 --family 36h11 /tmp/tag-1-50cm.png
 ```
 
-上例仅适用于实物为 `36h11` 的 Tag；其他 family 应替换为实际值。
+当前使用的实物标签为 `36h11`、边长 10 cm；示例中的 ID 应替换为实际要观测
+的标签 ID。
 `--family` 必须填写实物标签的 family（支持 `16h5`、`25h9`、`36h10`、`36h11`）；
 不能只凭 Tag ID 推断。每张图片输出一行 JSON：`pose=null` 表示目标未检出；
 `distance_m` 是相机到 10 cm Tag 中心的三维直线距离，`forward_m`、
@@ -70,7 +71,8 @@ ros2 run tonypi_exec_layer tonypi_observe_tag \
 `facing_error_deg` 是标签法线与视线的夹角，`reprojection_error_px` 是角点
 重投影平均误差。目标停止距离为相机光心到 Tag 中心 0.50 m。将同一张 10 cm
 实物标签分别放在几个已测量的静止位置，采集多张图像，核对距离和朝向的偏差及
-波动后再定到达容差。这些值尚不能直接作为运动闭环阈值。
+波动后再定到达容差。用户已通过多轮实物观测确认距离和角度测算准确；到达容差
+和闭环运动策略尚未确定，这些值不能直接作为运动闭环阈值。
 
 旧版 TonyPi 示例通过 `hiwonder.apriltag` 检测，但其依赖的动态库不一定随真机
 安装；离线入口使用 OpenCV AprilTag 字典与 `solvePnP`。现有 endpoint 仍执行

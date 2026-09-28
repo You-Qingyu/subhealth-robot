@@ -71,20 +71,32 @@ class TagPoseEstimator:
 
         只接受与现有 640×480 标定一致的原始图像；不对图像缩放或二次去畸变。
         """
+        corners = self._detect_corners(image)
+        if target_id not in corners:
+            return None
+        return self._estimate_pose(target_id, corners[target_id])
+
+    def estimate_all(self, image: np.ndarray) -> dict[int, TagPose]:
+        """在同一原图中估计所有检出的 Tag，按 ID 返回。"""
+        return {
+            tag_id: self._estimate_pose(tag_id, corners)
+            for tag_id, corners in self._detect_corners(image).items()
+        }
+
+    def _detect_corners(self, image: np.ndarray) -> dict[int, np.ndarray]:
         if (image.shape[1], image.shape[0]) != CALIBRATED_IMAGE_SIZE:
             raise ValueError('图像尺寸与 640x480 相机标定不一致')
         grayscale = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         corners, ids, _ = cv2.aruco.detectMarkers(grayscale, self._dictionary)
         if ids is None:
-            return None
-        matches = [
-            image_corners.reshape(4, 2)
-            for detected_id, image_corners in zip(ids.flatten(), corners)
-            if int(detected_id) == target_id
-        ]
-        if len(matches) > 1:
-            raise ValueError(f'同一画面中出现多个 Tag {target_id}，无法确定目标')
-        return self._estimate_pose(target_id, matches[0]) if matches else None
+            return {}
+        found = {}
+        for detected_id, image_corners in zip(ids.flatten(), corners):
+            tag_id = int(detected_id)
+            if tag_id in found:
+                raise ValueError(f'同一画面中出现多个 Tag {tag_id}，无法确定目标')
+            found[tag_id] = image_corners.reshape(4, 2)
+        return found
 
     def _estimate_pose(self, tag_id: int, image_corners: np.ndarray) -> TagPose:
         success, rotation, translation = cv2.solvePnP(

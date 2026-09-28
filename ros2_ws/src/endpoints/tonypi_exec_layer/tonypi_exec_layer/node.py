@@ -16,7 +16,8 @@ from task_interfaces.action import ExecuteTask
 from .camera import CameraObservationError, TagCamera
 from .contract import InvalidPayload, UnsupportedPrimitive, parse_payload
 from .head import HeadAligner
-from .motion import ContinuousMotionRunner
+from .hardware import NavigationHardware
+from .motion import FiniteMotionRunner
 from .navigation import (
     DEFAULT_TASK_TIMEOUT_S,
     NavigationController,
@@ -50,7 +51,7 @@ class TonyPiExecLayerNode(Node):
         if not self._sdk_error:
             try:
                 self._head = HeadAligner(self._sdk)
-                self._motion = ContinuousMotionRunner(
+                self._motion = FiniteMotionRunner(
                     self._sdk,
                     os.path.join(self._tonypi_root, 'ActionGroups') + os.sep,
                 )
@@ -99,7 +100,7 @@ class TonyPiExecLayerNode(Node):
         return GoalResponse.ACCEPT
 
     def cancel_callback(self, _goal_handle) -> CancelResponse:
-        """接受取消请求，但由执行回调在当前动作完成后处理。"""
+        """接受取消请求，由有限动作入口请求安全停止。"""
         return CancelResponse.ACCEPT
 
     def execute_callback(self, goal_handle) -> ExecuteTask.Result:
@@ -161,9 +162,14 @@ class TonyPiExecLayerNode(Node):
                 self._camera_warmup_frames,
             ) as camera:
                 controller = NavigationController(
-                    camera=camera,
-                    head=self._head,
-                    motion=self._motion,
+                    hardware=NavigationHardware(
+                        camera=camera,
+                        head=self._head,
+                        motion=self._motion,
+                        allowed_actions=REQUIRED_ACTION_GROUPS,
+                        is_cancel_requested=lambda: goal_handle.is_cancel_requested,
+                        deadline_unix_ms=deadline_unix_ms,
+                    ),
                     is_cancel_requested=lambda: goal_handle.is_cancel_requested,
                     publish_target_arrived=lambda tag_id, index, total: (
                         self._publish_target_arrived(

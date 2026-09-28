@@ -1,6 +1,8 @@
 """TonyPi 导航使用的实时相机观测。"""
 
+from dataclasses import dataclass
 from pathlib import Path
+import time
 
 import cv2
 
@@ -11,8 +13,16 @@ class CameraObservationError(RuntimeError):
     """相机无法提供符合标定约束的图像时抛出。"""
 
 
+@dataclass(frozen=True)
+class FrameObservation:
+    """单帧中所有 Tag 的位姿和该帧采集时间。"""
+
+    poses: dict[int, TagPose]
+    captured_at_monotonic: float
+
+
 class TagCamera:
-    """持有一次导航任务的 V4L2 相机，并只返回最新 Tag 位姿。"""
+    """持有一次导航任务的 V4L2 相机，每次读取一帧新图像。"""
 
     def __init__(
         self,
@@ -51,8 +61,8 @@ class TagCamera:
             self._camera.release()
             self._camera = None
 
-    def observe(self, target_id: int) -> TagPose | None:
-        """读取一帧新图像并估计目标；目标不在画面中返回 `None`。"""
+    def observe_tags(self) -> FrameObservation:
+        """读取一帧新图像并估计其中所有 Tag。"""
         if self._camera is None:
             raise CameraObservationError('相机尚未打开')
         success, image = self._camera.read()
@@ -62,7 +72,8 @@ class TagCamera:
             raise CameraObservationError(
                 '摄像头输出尺寸与 640x480 相机标定不一致'
             )
-        return self._estimator.estimate(image, target_id)
+        captured_at = time.monotonic()
+        return FrameObservation(self._estimator.estimate_all(image), captured_at)
 
     def _discard_warmup_frames(self) -> None:
         for _ in range(self._warmup_frames):

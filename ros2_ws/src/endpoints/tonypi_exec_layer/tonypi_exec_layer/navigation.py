@@ -4,8 +4,10 @@ from dataclasses import dataclass
 import time
 from typing import Callable
 
+from .camera import FrameObservation
 from .hardware import NavigationHardware
 from .motion import MotionExecutionError, MotionInterrupted
+from .navigation_trace import NavigationTrace, PendingStep
 from .tag_pose import TagPose
 
 
@@ -105,10 +107,12 @@ class NavigationController:
         hardware: NavigationHardware,
         is_cancel_requested: Callable[[], bool],
         publish_target_arrived: Callable[[int, int, int], None],
+        publish_step: Callable[[dict], None],
     ) -> None:
         self._hardware = hardware
         self._is_cancel_requested = is_cancel_requested
         self._publish_target_arrived = publish_target_arrived
+        self._publish_step = publish_step
 
     def execute(
         self,
@@ -117,7 +121,8 @@ class NavigationController:
     ) -> NavigationResult:
         """依次到达目标，整条路线共用 deadline。"""
         for index, tag_id in enumerate(target_tags):
-            result = self._navigate_to_tag(tag_id, deadline_unix_ms)
+            trace = NavigationTrace(tag_id, index, len(target_tags), self._publish_step)
+            result = self._navigate_to_tag(tag_id, deadline_unix_ms, trace)
             if not result.succeeded:
                 return result
             self._publish_target_arrived(tag_id, index, len(target_tags))
@@ -127,16 +132,24 @@ class NavigationController:
         self,
         tag_id: int,
         deadline_unix_ms: int,
+        trace: NavigationTrace,
     ) -> NavigationResult:
         phase = 'search_align'
         arrived_frames = 0
+        pending: PendingStep | None = None
         while True:
             failure = self._check_stop_conditions(deadline_unix_ms)
             if failure:
+                if pending is not None:
+                    trace.stopped(pending, failure.error_code)
                 return failure
             try:
-                frame = self._hardware.observe_tags()
+                frame = self._observe_with_trace(trace, pending, tag_id)
+                pending = None
                 decision = decide(frame.poses.get(tag_id), phase)
+                if decision.phase != phase:
+                    trace.phase_changed(decision.phase, frame.poses.get(tag_id))
+                phase = decision.phase
                 if decision.phase == 'arrived':
                     arrived_frames += 1
                     if arrived_frames == ARRIVAL_CONFIRMATIONS:
@@ -145,13 +158,52 @@ class NavigationController:
                         )
                     continue
                 arrived_frames = 0
-                phase = decision.phase
                 if decision.action_group is not None:
-                    self._hardware.execute_action(decision.action_group)
+                    pending = self._run_step(
+                        trace, decision.phase, decision.action_group, frame, tag_id
+                    )
             except MotionInterrupted as error:
                 return NavigationResult(False, error.error_code, str(error))
             except MotionExecutionError as error:
                 return NavigationResult(False, 'MOTION_FAILED', str(error))
+
+    def _observe_with_trace(
+        self,
+        trace: NavigationTrace,
+        pending: PendingStep | None,
+        tag_id: int,
+    ) -> FrameObservation:
+        try:
+            frame = self._hardware.observe_tags()
+        except Exception as error:
+            if pending is not None:
+                trace.stopped(pending, getattr(error, 'error_code', 'OBSERVATION_FAILED'))
+            raise
+        if pending is not None:
+            trace.observed(pending, frame.poses.get(tag_id), frame.captured_at_monotonic)
+        return frame
+
+    def _run_step(
+        self,
+        trace: NavigationTrace,
+        phase: str,
+        action_group: str,
+        frame: FrameObservation,
+        tag_id: int,
+    ) -> PendingStep:
+        step = trace.started(
+            phase,
+            action_group,
+            frame.poses.get(tag_id),
+            frame.captured_at_monotonic,
+        )
+        try:
+            self._hardware.execute_action(action_group)
+        except Exception as error:
+            trace.stopped(step, getattr(error, 'error_code', 'MOTION_FAILED'))
+            raise
+        trace.motion_finished(step)
+        return step
 
     def _check_stop_conditions(self, deadline_unix_ms: int) -> NavigationResult | None:
         if self._is_cancel_requested():

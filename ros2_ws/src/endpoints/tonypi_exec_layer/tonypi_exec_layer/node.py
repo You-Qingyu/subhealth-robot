@@ -179,6 +179,9 @@ class TonyPiExecLayerNode(Node):
                             total,
                         )
                     ),
+                    publish_step=lambda event: self._publish_navigation_step(
+                        goal_handle, event
+                    ),
                 )
                 navigation_result = controller.execute(
                     payload['target_tags'],
@@ -250,6 +253,22 @@ class TonyPiExecLayerNode(Node):
             separators=(',', ':'),
             sort_keys=True,
         )
+        feedback.timestamp = self.get_clock().now().to_msg()
+        goal_handle.publish_feedback(feedback)
+
+    def _publish_navigation_step(self, goal_handle, event: dict) -> None:
+        """将每步决策与前后位姿同时发送到日志和 action feedback。"""
+        record = {'task_id': goal_handle.request.task_id, **event}
+        details = json.dumps(
+            record, ensure_ascii=False, separators=(',', ':'), sort_keys=True
+        )
+        self.get_logger().info(f'tonypi_navigation_step {details}')
+        feedback = ExecuteTask.Feedback()
+        feedback.task_id = goal_handle.request.task_id
+        feedback.state = 'running'
+        feedback.progress = event['target_index'] / event['target_count']
+        feedback.phase = event['phase']
+        feedback.details_json = details
         feedback.timestamp = self.get_clock().now().to_msg()
         goal_handle.publish_feedback(feedback)
 

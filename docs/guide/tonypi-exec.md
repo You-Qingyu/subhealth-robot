@@ -51,6 +51,12 @@ Tag ID 映射为固定动作。状态机只调用 `observe_tags()` 和 `execute_
 满足 `0.50 ± 0.08 m`、`≤5°`、`≤10°` 且连续三帧才算到达。无进展和
 状态往返不额外报错；没有上层 deadline 时，整条路线使用 120 秒默认期限。
 
+每一步在 `tonypi_navigation_step` 日志和 `ExecuteTask` feedback 的 `details_json`
+中记录相同的结构化事件：`started` 包含目标、阶段、动作组及动作前位姿；
+`observed` 包含动作后新帧位姿（目标不可见时为 `null`）、动作接口耗时及从开始
+到新画面的总耗时；`stopped` 包含中断/观测错误码。阶段变化另有
+`phase_changed` 事件。这里只记录观测和决策，不从 SDK 返回值推断实际位移。
+
 ## AprilTag 位姿观测（离线、只读）
 
 图像采集与位姿测量入口都与运动 endpoint 独立，均不导入 `ActionGroupControl`

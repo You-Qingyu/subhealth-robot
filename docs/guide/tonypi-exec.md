@@ -98,8 +98,9 @@ TonyPi SDK 的 `ActionGroupControl.runActionGroup()` 会在内部捕获底层异
 当前版本只能可靠报告 SDK 初始化失败、payload 或 Tag 校验失败、deadline、取消、busy 和动作组文件缺失；底层执行错误只能记录日志。修复该缺陷需要修改 SDK 或绕过 SDK 重写动作组执行逻辑，当前不做这两种高风险改动。
 
 TonyPi 的 `runActionGroup()` 还包含前进/后退动作的特殊起始和结束逻辑。当前导航
-在后台线程以 `times=0` 运行 `go_forward`、`back`、`left_move`、`right_move`
-或小步转向动作；视觉线程持续读取新帧，在到达、需要重规划、目标丢失、取消或
+在后台线程以 `times=0` 运行 `go_forward_one_small_step`、`back`、`left_move`、
+`right_move` 或小步转向动作；视觉线程持续读取新帧，在到达、需要重规划、目标丢失、取消或
 deadline 时调用 `stopActionGroup()`。对于 `go_forward`/`back`，SDK 会在停止时
-执行对应的 `*_end` 动作。SDK 会吞掉底层动作异常，因此连续动作线程的结束和后续
+执行对应的 `*_end` 动作；当前使用的 `go_forward_one_small_step` 是普通有限动作组，
+会在当前动作帧组结束后退出，不执行 `go_forward_end`。SDK 会吞掉底层动作异常，因此连续动作线程的结束和后续
 视觉观测都必须成功，不能仅凭 SDK 函数返回推断硬件成功。

@@ -1,9 +1,10 @@
-"""基于 AprilTag 位姿的 TonyPi 单目标闭环导航。"""
+"""基于 AprilTag 位姿的 TonyPi 连续闭环导航。"""
 
 from dataclasses import dataclass
 import time
 from typing import Callable
 
+from .motion import ContinuousMotionRunner, MotionMonitorDecision
 from .tag_pose import TagPose
 
 
@@ -11,6 +12,7 @@ TARGET_DISTANCE_M = 0.50
 DISTANCE_TOLERANCE_M = 0.08
 BEARING_TOLERANCE_DEG = 5.0
 FACING_TOLERANCE_DEG = 10.0
+LATERAL_DIRECTION_EPSILON_DEG = 2.0
 ARRIVAL_CONFIRMATIONS = 3
 NON_CONVERGENCE_CONFIRMATIONS = 3
 MISSING_TAG_TIMEOUT_S = 1.0
@@ -18,11 +20,15 @@ DEFAULT_TASK_TIMEOUT_S = 120.0
 
 TURN_LEFT_ACTION = 'turn_left_small_step'
 TURN_RIGHT_ACTION = 'turn_right_small_step'
-FORWARD_ACTION = 'go_forward_one_small_step'
-BACKWARD_ACTION = 'back_one_step'
+LEFT_MOVE_ACTION = 'left_move'
+RIGHT_MOVE_ACTION = 'right_move'
+FORWARD_ACTION = 'go_forward'
+BACKWARD_ACTION = 'back'
 REQUIRED_ACTION_GROUPS = (
     TURN_LEFT_ACTION,
     TURN_RIGHT_ACTION,
+    LEFT_MOVE_ACTION,
+    RIGHT_MOVE_ACTION,
     FORWARD_ACTION,
     BACKWARD_ACTION,
 )
@@ -30,7 +36,7 @@ REQUIRED_ACTION_GROUPS = (
 
 @dataclass(frozen=True)
 class NavigationDecision:
-    """单次新鲜位姿观测对应的下一步决定。"""
+    """单次新鲜位姿观测对应的下一步连续动作决定。"""
 
     phase: str
     action_group: str | None
@@ -47,29 +53,22 @@ class NavigationResult:
 
 
 def decide(pose: TagPose) -> NavigationDecision:
-    """将一个有效位姿转换为到达、失败或单个有限动作。"""
-    if _needs_unresolvable_facing(pose):
-        return NavigationDecision(
-            phase='fail',
-            action_group=None,
-            message=(
-                '标签相对朝向误差超过 10°，但水平方位已对齐；'
-                '当前版本不支持侧向调整'
-            ),
-        )
+    """将一个有效位姿转换为到达、失败或连续动作。"""
+    if pose.facing_error_deg > FACING_TOLERANCE_DEG:
+        return _lateral_alignment_decision(pose)
     if abs(pose.bearing_deg) > BEARING_TOLERANCE_DEG:
         return _turn_decision(pose)
     if pose.distance_m < TARGET_DISTANCE_M - DISTANCE_TOLERANCE_M:
         return NavigationDecision(
             phase='retreat',
             action_group=BACKWARD_ACTION,
-            message='距离小于停止范围，执行一次后退小步',
+            message='距离小于停止范围，连续后退并实时观测',
         )
     if pose.distance_m > TARGET_DISTANCE_M + DISTANCE_TOLERANCE_M:
         return NavigationDecision(
             phase='approach',
             action_group=FORWARD_ACTION,
-            message='距离大于停止范围，执行一次前进小步',
+            message='距离大于停止范围，连续前进并实时观测',
         )
     return NavigationDecision(
         phase='arrived',
@@ -84,19 +83,19 @@ def is_arrived(pose: TagPose) -> bool:
 
 
 class NavigationController:
-    """编排置位、观测、单步动作和连续到达确认。"""
+    """编排云台置位、连续动作、实时观测和稳定到达确认。"""
 
     def __init__(
         self,
         camera,
         head,
-        run_action: Callable[[str], None],
+        motion: ContinuousMotionRunner,
         is_cancel_requested: Callable[[], bool],
         publish_target_arrived: Callable[[int, int, int], None],
     ) -> None:
         self._camera = camera
         self._head = head
-        self._run_action = run_action
+        self._motion = motion
         self._is_cancel_requested = is_cancel_requested
         self._publish_target_arrived = publish_target_arrived
 
@@ -149,7 +148,9 @@ class NavigationController:
                 continue
             if decision.phase == 'arrived':
                 confirmation = self._confirm_arrival(
-                    tag_id, pose, deadline_unix_ms
+                    tag_id,
+                    pose,
+                    deadline_unix_ms,
                 )
                 if confirmation is not None:
                     if not confirmation.succeeded:
@@ -158,68 +159,52 @@ class NavigationController:
                     return confirmation
                 continue
 
-            action_result, moved = self._execute_next_action(
-                tag_id, deadline_unix_ms
-            )
-            if not action_result.succeeded:
-                return action_result
-            has_moved = has_moved or moved
-
-    def _execute_next_action(
-        self,
-        tag_id: int,
-        deadline_unix_ms: int,
-    ) -> tuple[NavigationResult, bool]:
-        """动作前重新置位和观测，避免使用云台变化前的旧位姿。"""
-        failure = self._check_stop_conditions(deadline_unix_ms)
-        if failure:
-            return failure, False
-        self._head.align()
-        failure = self._check_stop_conditions(deadline_unix_ms)
-        if failure:
-            return failure, False
-        pose = self._observe_tag(tag_id, True, deadline_unix_ms)
-        if isinstance(pose, NavigationResult):
-            return pose, False
-        decision = decide(pose)
-        if decision.phase == 'fail':
-            failure = self._confirm_non_convergence(
+            segment_result = self._run_motion_segment(
                 tag_id,
-                pose,
-                decision.message,
+                decision,
                 deadline_unix_ms,
             )
-            if failure is not None:
-                return failure, False
-            return NavigationResult(True, '', '重新观测后无需执行当前动作'), False
-        if decision.phase == 'arrived':
-            return NavigationResult(True, '', 'Target already reached'), False
-        failure = self._check_stop_conditions(deadline_unix_ms)
-        if failure:
-            return failure, False
-        self._run_action(decision.action_group)
-        return NavigationResult(True, '', decision.message), True
+            if segment_result is not None:
+                if not segment_result.succeeded:
+                    return segment_result
+                self._publish_target_arrived(tag_id, index, total)
+                return segment_result
+            has_moved = True
 
-    def _confirm_non_convergence(
+    def _run_motion_segment(
         self,
         tag_id: int,
-        first_pose: TagPose,
-        message: str,
+        decision: NavigationDecision,
         deadline_unix_ms: int,
     ) -> NavigationResult | None:
-        """过滤动作后短暂抖动，只在连续三帧确认后报告不可收敛。"""
-        poses = [first_pose]
-        while len(poses) < NON_CONVERGENCE_CONFIRMATIONS:
-            failure = self._check_stop_conditions(deadline_unix_ms)
-            if failure:
-                return failure
+        """持续执行当前动作，直到视觉要求停止或重新规划。"""
+        monitor = _ContinuousObservationMonitor(
+            camera=self._camera,
+            tag_id=tag_id,
+            action_group=decision.action_group,
+            is_cancel_requested=self._is_cancel_requested,
+            deadline_unix_ms=deadline_unix_ms,
+        )
+        try:
+            stop_decision = self._motion.run_until(
+                decision.action_group,
+                monitor,
+            )
+        except Exception as error:  # noqa: BLE001 - 转换为导航终态
+            return NavigationResult(False, 'MOTION_FAILED', str(error))
+        if stop_decision.reason == 'arrived':
+            return NavigationResult(True, '', 'Target reached with stable observations')
+        if stop_decision.reason == 'failure':
+            return NavigationResult(
+                False,
+                stop_decision.error_code,
+                stop_decision.message,
+            )
+        if stop_decision.reason == 'lost':
             pose = self._observe_tag(tag_id, True, deadline_unix_ms)
             if isinstance(pose, NavigationResult):
                 return pose
-            if decide(pose).phase != 'fail':
-                return None
-            poses.append(pose)
-        return NavigationResult(False, 'NON_CONVERGENT_POSE', message)
+        return None
 
     def _confirm_arrival(
         self,
@@ -240,6 +225,27 @@ class NavigationController:
                 return None
             poses.append(pose)
         return NavigationResult(True, '', 'Target reached with stable observations')
+
+    def _confirm_non_convergence(
+        self,
+        tag_id: int,
+        first_pose: TagPose,
+        message: str,
+        deadline_unix_ms: int,
+    ) -> NavigationResult | None:
+        """只在连续三帧没有可用侧移方向时报告不可收敛。"""
+        poses = [first_pose]
+        while len(poses) < NON_CONVERGENCE_CONFIRMATIONS:
+            failure = self._check_stop_conditions(deadline_unix_ms)
+            if failure:
+                return failure
+            pose = self._observe_tag(tag_id, True, deadline_unix_ms)
+            if isinstance(pose, NavigationResult):
+                return pose
+            if decide(pose).phase != 'fail':
+                return None
+            poses.append(pose)
+        return NavigationResult(False, 'NON_CONVERGENT_POSE', message)
 
     def _observe_tag(
         self,
@@ -272,24 +278,81 @@ class NavigationController:
         return None
 
 
-def _turn_decision(pose: TagPose) -> NavigationDecision:
-    if pose.bearing_deg < 0:
+class _ContinuousObservationMonitor:
+    """把实时位姿帧转换为连续动作线程的停止决定。"""
+
+    def __init__(
+        self,
+        camera,
+        tag_id: int,
+        action_group: str | None,
+        is_cancel_requested: Callable[[], bool],
+        deadline_unix_ms: int,
+    ) -> None:
+        self._camera = camera
+        self._tag_id = tag_id
+        self._action_group = action_group
+        self._is_cancel_requested = is_cancel_requested
+        self._deadline_unix_ms = deadline_unix_ms
+        self._arrived_frames = 0
+
+    def __call__(self) -> MotionMonitorDecision:
+        if self._is_cancel_requested():
+            return MotionMonitorDecision(True, 'failure', 'CANCEL_REQUESTED', 'Cancellation observed')
+        if _deadline_expired(self._deadline_unix_ms):
+            return MotionMonitorDecision(True, 'failure', 'DEADLINE_EXCEEDED', 'Task deadline elapsed')
+        pose = self._camera.observe(self._tag_id)
+        if pose is None:
+            return MotionMonitorDecision(True, 'lost')
+        decision = decide(pose)
+        if decision.phase == 'arrived':
+            self._arrived_frames += 1
+            if self._arrived_frames >= ARRIVAL_CONFIRMATIONS:
+                return MotionMonitorDecision(True, 'arrived')
+            return MotionMonitorDecision(False, 'continue')
+        self._arrived_frames = 0
+        if decision.phase == 'fail':
+            return MotionMonitorDecision(True, 'replan')
+        if decision.action_group != self._action_group:
+            return MotionMonitorDecision(True, 'replan')
+        return MotionMonitorDecision(False, 'continue')
+
+
+def _lateral_alignment_decision(pose: TagPose) -> NavigationDecision:
+    lateral_error = pose.normal_bearing_deg - pose.bearing_deg
+    if abs(lateral_error) <= LATERAL_DIRECTION_EPSILON_DEG:
         return NavigationDecision(
-            phase='align',
-            action_group=TURN_LEFT_ACTION,
-            message='目标在相机左侧，执行一次左转小步',
+            phase='fail',
+            action_group=None,
+            message=(
+                '标签朝向误差超过 10°，但有符号横向误差不足以选择侧移方向；'
+                '当前姿态无法通过侧移收敛'
+            ),
+        )
+    if lateral_error > 0:
+        return NavigationDecision(
+            phase='lateral_align',
+            action_group=LEFT_MOVE_ACTION,
+            message='标签法线方向需要向左侧移，连续观测中',
         )
     return NavigationDecision(
-        phase='align',
-        action_group=TURN_RIGHT_ACTION,
-        message='目标在相机右侧，执行一次右转小步',
+        phase='lateral_align',
+        action_group=RIGHT_MOVE_ACTION,
+        message='标签法线方向需要向右侧移，连续观测中',
     )
 
 
-def _needs_unresolvable_facing(pose: TagPose) -> bool:
-    return (
-        abs(pose.bearing_deg) <= BEARING_TOLERANCE_DEG
-        and pose.facing_error_deg > FACING_TOLERANCE_DEG
+def _turn_decision(pose: TagPose) -> NavigationDecision:
+    if pose.bearing_deg < 0:
+        return NavigationDecision(
+            phase='turn',
+            action_group=TURN_LEFT_ACTION,
+            message='标签中心在相机左侧，连续左转并实时观测',
+        )
+    return NavigationDecision(
+        phase='turn',
+        action_group=TURN_RIGHT_ACTION,
+        message='标签中心在相机右侧，连续右转并实时观测',
     )
 
 

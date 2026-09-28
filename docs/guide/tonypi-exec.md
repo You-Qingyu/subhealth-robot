@@ -34,9 +34,9 @@ make run endpoint DEVICE_TYPE=tonypi
 ## AprilTag 闭环导航
 
 endpoint 只接受 `go_to_tag`，`target_tags` 是按顺序到达的 AprilTag ID，不再把
-Tag ID 映射为固定动作。每个目标都按“云台置正前方 → 获取新鲜图像 → 判断 →
-至多执行一个有限动作 → 重新观测”的循环处理；目标稳定满足停止条件后才发布该
-目标的路线进度。
+Tag ID 映射为固定动作。每个目标都按“云台置正前方 → 获取新鲜图像 → 启动一个
+连续动作段 → 高频观测并在条件满足时停止 → 重新规划”的循环处理；目标稳定满足
+停止条件后才发布该目标的路线进度。
 
 导航期间云台必须保持相机光轴与机身正前方对齐。每次机身动作前，endpoint 都会
 将 PWM 舵机 1/2 置于 `1500/1435`，等待约 0.2 秒稳定，再重新观测后执行动作。
@@ -44,8 +44,8 @@ Tag ID 映射为固定动作。每个目标都按“云台置正前方 → 获�
 
 当前停止条件为：相机光心到 Tag 中心距离 `0.50 ± 0.08 m`、水平方位角绝对值
 不超过 `5°`、标签相对朝向误差不超过 `10°`，并连续满足 3 帧。目标初始不可见
-直接失败；机身动作后短暂丢失目标时最多等待 1 秒。若水平方位已对齐但标签朝向
-误差连续 3 帧仍超过阈值，当前版本因不支持侧向调整而失败。没有上层 deadline 时，
+直接失败；机身动作后短暂丢失目标时最多等待 1 秒。若标签朝向误差连续 3 帧仍超过
+阈值且没有可用的有符号侧移方向，当前版本报告不可收敛。没有上层 deadline 时，
 endpoint 为整条路线使用 120 秒默认期限。
 
 ## AprilTag 位姿观测（离线、只读）
@@ -75,6 +75,7 @@ ros2 run tonypi_exec_layer tonypi_observe_tag \
 不能只凭 Tag ID 推断。每张图片输出一行 JSON：`pose=null` 表示目标未检出；
 `distance_m` 是相机到 10 cm Tag 中心的三维直线距离，`forward_m`、
 `lateral_m`、`vertical_m` 是相机坐标系分量，`bearing_deg` 是目标方位，
+`normal_bearing_deg` 是将 Tag 法线定向到相机至 Tag 半球后的水平角，
 `facing_error_deg` 是标签法线与视线的夹角，`reprojection_error_px` 是角点
 重投影平均误差。目标停止距离为相机光心到 Tag 中心 0.50 m。将同一张 10 cm
 实物标签分别放在几个已测量的静止位置，采集多张图像，核对距离和朝向的偏差及
@@ -90,7 +91,9 @@ TonyPi SDK 的 `ActionGroupControl.runActionGroup()` 会在内部捕获底层异
 
 当前版本只能可靠报告 SDK 初始化失败、payload 或 Tag 校验失败、deadline、取消、busy 和动作组文件缺失；底层执行错误只能记录日志。修复该缺陷需要修改 SDK 或绕过 SDK 重写动作组执行逻辑，当前不做这两种高风险改动。
 
-TonyPi 的 `runActionGroup()` 还包含前进/后退动作的特殊起始和结束逻辑，动作组调用次数及实际步幅由 SDK 和 `.d6a` 文件共同决定。当前导航使用有限动作组
-`turn_left_small_step`、`turn_right_small_step`、`go_forward_one_small_step`
-和已实测过一次的 `back_one_step`；一次调用仍不代表精确的物理步长，闭环依靠
-下一帧位姿重新决策，并受 deadline 限制而不设置动作次数上限。
+TonyPi 的 `runActionGroup()` 还包含前进/后退动作的特殊起始和结束逻辑。当前导航
+在后台线程以 `times=0` 运行 `go_forward`、`back`、`left_move`、`right_move`
+或小步转向动作；视觉线程持续读取新帧，在到达、需要重规划、目标丢失、取消或
+deadline 时调用 `stopActionGroup()`。对于 `go_forward`/`back`，SDK 会在停止时
+执行对应的 `*_end` 动作。SDK 会吞掉底层动作异常，因此连续动作线程的结束和后续
+视觉观测都必须成功，不能仅凭 SDK 函数返回推断硬件成功。

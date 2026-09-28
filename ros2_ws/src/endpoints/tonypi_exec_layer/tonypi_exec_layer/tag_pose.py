@@ -28,6 +28,7 @@ class TagPose:
     lateral_m: float
     vertical_m: float
     bearing_deg: float
+    normal_bearing_deg: float
     facing_error_deg: float
     reprojection_error_px: float
 
@@ -91,7 +92,11 @@ class TagPoseEstimator:
             raise ValueError(f'Tag {tag_id} 的位姿无效')
         matrix, _ = cv2.Rodrigues(rotation)
         normal = matrix[:, 2]
-        facing_cosine = abs(float(np.dot(normal, translation.flatten()) / distance))
+        translation_vector = translation.flatten()
+        normal_toward_tag = normal.copy()
+        if float(np.dot(normal_toward_tag, translation_vector)) < 0:
+            normal_toward_tag = -normal_toward_tag
+        facing_cosine = abs(float(np.dot(normal, translation_vector) / distance))
         projected, _ = cv2.projectPoints(
             self._tag_corners, rotation, translation,
             self._camera_matrix, self._distortion,
@@ -104,6 +109,9 @@ class TagPoseEstimator:
             lateral_m=float(x),
             vertical_m=float(y),
             bearing_deg=math.degrees(math.atan2(x, z)),
+            normal_bearing_deg=math.degrees(
+                math.atan2(normal_toward_tag[0], normal_toward_tag[2])
+            ),
             facing_error_deg=math.degrees(math.acos(max(-1.0, min(1.0, facing_cosine)))),
             reprojection_error_px=float(np.mean(error)),
         )

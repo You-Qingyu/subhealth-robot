@@ -16,6 +16,7 @@ from task_interfaces.action import ExecuteTask
 from .camera import CameraObservationError, TagCamera
 from .contract import InvalidPayload, UnsupportedPrimitive, parse_payload
 from .head import HeadAligner
+from .motion import ContinuousMotionRunner
 from .navigation import (
     DEFAULT_TASK_TIMEOUT_S,
     NavigationController,
@@ -44,12 +45,17 @@ class TonyPiExecLayerNode(Node):
         )
         self._sdk = None
         self._head = None
+        self._motion = None
         self._sdk_error = self._initialize_sdk()
         if not self._sdk_error:
             try:
                 self._head = HeadAligner(self._sdk)
+                self._motion = ContinuousMotionRunner(
+                    self._sdk,
+                    os.path.join(self._tonypi_root, 'ActionGroups') + os.sep,
+                )
             except Exception as error:  # noqa: BLE001 - 统一报告硬件初始化错误
-                self._sdk_error = f'could not initialize TonyPi head control: {error}'
+                self._sdk_error = f'could not initialize TonyPi motion control: {error}'
         self._active_goal = False
         self._goal_state_lock = threading.Lock()
         self._action_server = ActionServer(
@@ -157,10 +163,7 @@ class TonyPiExecLayerNode(Node):
                 controller = NavigationController(
                     camera=camera,
                     head=self._head,
-                    run_action=lambda action_group: self._run_action_group(
-                        action_group,
-                        request.task_id,
-                    ),
+                    motion=self._motion,
                     is_cancel_requested=lambda: goal_handle.is_cancel_requested,
                     publish_target_arrived=lambda tag_id, index, total: (
                         self._publish_target_arrived(
@@ -218,15 +221,6 @@ class TonyPiExecLayerNode(Node):
                 os.path.join(action_group_root, f'{action_group}.d6a')
             )
         ]
-
-    def _run_action_group(self, action_group: str, task_id: str) -> None:
-        self.get_logger().info(
-            f'task_id={task_id} starting action_group={action_group}'
-        )
-        self._sdk.runActionGroup(
-            action_group,
-            path=os.path.join(self._tonypi_root, 'ActionGroups') + os.sep,
-        )
 
     def _publish_target_arrived(
         self,

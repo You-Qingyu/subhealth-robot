@@ -51,11 +51,15 @@ Tag ID 映射为固定动作。状态机只调用 `observe_tags()` 和 `execute_
 满足 `0.50 ± 0.08 m`、`≤5°`、`≤10°` 且连续三帧才算到达。无进展和
 状态往返不额外报错；没有上层 deadline 时，整条路线使用 120 秒默认期限。
 
-每一步在 `tonypi_navigation_step` 日志和 `ExecuteTask` feedback 的 `details_json`
-中记录相同的结构化事件：`started` 包含目标、阶段、动作组及动作前位姿；
-`observed` 包含动作后新帧位姿（目标不可见时为 `null`）、动作接口耗时及从开始
-到新画面的总耗时；`stopped` 包含中断/观测错误码。阶段变化另有
-`phase_changed` 事件。这里只记录观测和决策，不从 SDK 返回值推断实际位移。
+每次用于决策的 `observe_tags()` 都在真机上保存逐帧回放。日志中的
+`tonypi_replay directory=...` 给出本次任务的目录，默认为
+`/tmp/tonypi-replays/<随机任务目录>`，可通过 ROS 参数 `replay_directory` 修改。
+打开其中的 `index.html` 可逐帧浏览或播放，也可直接查看 `000001.png` 及同名
+`000001.json`。标注图片显示目标角点、距离、方位、法线角、朝向误差、状态、决策
+原因和下一动作；JSON 保留相同帧全部 Tag 的完整位姿（含角点和变换）、目标未
+检出时的 `null`、决策前后状态、动作耗时和执行错误。`raw/000001.png` 是用于
+识别的未经处理原图。`previous_action_frame` 将动作后的观测指回发出该动作的帧。
+原图、标注图与 JSON 共用编号；动作执行期间没有用于决策的观测帧。
 
 ## AprilTag 位姿观测（离线、只读）
 

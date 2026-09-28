@@ -2,6 +2,7 @@
 
 import json
 import os
+from pathlib import Path
 import sys
 import time
 import threading
@@ -23,6 +24,7 @@ from .navigation import (
     NavigationController,
     REQUIRED_ACTION_GROUPS,
 )
+from .navigation_replay import NavigationReplay
 
 
 class TonyPiExecLayerNode(Node):
@@ -35,6 +37,7 @@ class TonyPiExecLayerNode(Node):
         self.declare_parameter('camera_device', '/dev/video0')
         self.declare_parameter('tag_family', '36h11')
         self.declare_parameter('camera_warmup_frames', 10)
+        self.declare_parameter('replay_directory', '/tmp/tonypi-replays')
 
         action_name = str(self.get_parameter('action_name').value)
         self._device_id = str(self.get_parameter('device_id').value)
@@ -44,6 +47,7 @@ class TonyPiExecLayerNode(Node):
         self._camera_warmup_frames = int(
             self.get_parameter('camera_warmup_frames').value
         )
+        self._replay_directory = Path(str(self.get_parameter('replay_directory').value))
         self._sdk = None
         self._head = None
         self._motion = None
@@ -155,6 +159,8 @@ class TonyPiExecLayerNode(Node):
                 f'camera calibration file not found: {calibration_path}',
             )
         try:
+            replay = NavigationReplay(self._replay_directory, request.task_id)
+            self.get_logger().info(f'tonypi_replay directory={replay.directory}')
             with TagCamera(
                 self._camera_device,
                 calibration_path,
@@ -179,9 +185,7 @@ class TonyPiExecLayerNode(Node):
                             total,
                         )
                     ),
-                    publish_step=lambda event: self._publish_navigation_step(
-                        goal_handle, event
-                    ),
+                    replay=replay,
                 )
                 navigation_result = controller.execute(
                     payload['target_tags'],
@@ -253,22 +257,6 @@ class TonyPiExecLayerNode(Node):
             separators=(',', ':'),
             sort_keys=True,
         )
-        feedback.timestamp = self.get_clock().now().to_msg()
-        goal_handle.publish_feedback(feedback)
-
-    def _publish_navigation_step(self, goal_handle, event: dict) -> None:
-        """将每步决策与前后位姿同时发送到日志和 action feedback。"""
-        record = {'task_id': goal_handle.request.task_id, **event}
-        details = json.dumps(
-            record, ensure_ascii=False, separators=(',', ':'), sort_keys=True
-        )
-        self.get_logger().info(f'tonypi_navigation_step {details}')
-        feedback = ExecuteTask.Feedback()
-        feedback.task_id = goal_handle.request.task_id
-        feedback.state = 'running'
-        feedback.progress = event['target_index'] / event['target_count']
-        feedback.phase = event['phase']
-        feedback.details_json = details
         feedback.timestamp = self.get_clock().now().to_msg()
         goal_handle.publish_feedback(feedback)
 

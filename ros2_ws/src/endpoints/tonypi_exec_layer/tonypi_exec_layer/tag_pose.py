@@ -41,6 +41,7 @@ class TagPose:
     reprojection_error_px: float
     image_margin_px: float
     transform: TagTransform
+    image_corners_px: tuple[tuple[float, float], ...]
 
 
 class TagPoseEstimator:
@@ -151,5 +152,8 @@ class TagPoseEstimator:
                     for row in matrix
                 ),
                 translation_c_tag=tuple(float(value) for value in translation_vector),
+            ),
+            image_corners_px=tuple(
+                (float(point[0]), float(point[1])) for point in image_corners
             ),
         )

@@ -4,10 +4,9 @@ from dataclasses import dataclass
 import time
 from typing import Callable
 
-from .camera import FrameObservation
 from .hardware import NavigationHardware
 from .motion import MotionExecutionError, MotionInterrupted
-from .navigation_trace import NavigationTrace, PendingStep
+from .navigation_replay import NavigationReplay
 from .tag_pose import TagPose
 
 
@@ -43,6 +42,7 @@ class NavigationDecision:
 
     phase: str
     action_group: str | None
+    reason: str
 
 
 @dataclass(frozen=True)
@@ -57,17 +57,17 @@ class NavigationResult:
 def decide(pose: TagPose | None, phase: str) -> NavigationDecision:
     """仅根据当前正前方位姿与状态决定下一步。"""
     if pose is None:
-        return NavigationDecision('search_align', TURN_LEFT_ACTION)
+        return NavigationDecision('search_align', TURN_LEFT_ACTION, 'target_not_detected')
     if abs(pose.bearing_deg) > SEARCH_HALF_ANGLE_DEG:
-        return NavigationDecision('search_align', TURN_LEFT_ACTION)
+        return NavigationDecision('search_align', TURN_LEFT_ACTION, 'outside_search_range')
     if abs(pose.bearing_deg) > APPROACH_HALF_ANGLE_DEG:
-        return NavigationDecision('search_align', _turn_toward_tag(pose))
+        return NavigationDecision('search_align', _turn_toward_tag(pose), 'outside_approach_range')
     if phase == 'search_align':
         next_phase = (
             'approach' if pose.distance_m > TARGET_DISTANCE_M + DISTANCE_TOLERANCE_M
             else 'terminal_align'
         )
-        return NavigationDecision(next_phase, None)
+        return NavigationDecision(next_phase, None, 'target_acquired')
     if phase == 'approach':
         return _approach_decision(pose)
     return _terminal_decision(pose)
@@ -75,24 +75,24 @@ def decide(pose: TagPose | None, phase: str) -> NavigationDecision:
 
 def _approach_decision(pose: TagPose) -> NavigationDecision:
     if pose.distance_m <= TARGET_DISTANCE_M + DISTANCE_TOLERANCE_M:
-        return NavigationDecision('terminal_align', None)
-    return NavigationDecision('approach', FORWARD_ACTION)
+        return NavigationDecision('terminal_align', None, 'distance_in_terminal_range')
+    return NavigationDecision('approach', FORWARD_ACTION, 'distance_too_far')
 
 
 def _terminal_decision(pose: TagPose) -> NavigationDecision:
     if pose.distance_m > TARGET_DISTANCE_M + DISTANCE_TOLERANCE_M:
-        return NavigationDecision('approach', None)
+        return NavigationDecision('approach', None, 'distance_too_far')
     if pose.distance_m < TARGET_DISTANCE_M - DISTANCE_TOLERANCE_M:
-        return NavigationDecision('terminal_align', BACKWARD_ACTION)
+        return NavigationDecision('terminal_align', BACKWARD_ACTION, 'distance_too_close')
     if abs(pose.bearing_deg) > BEARING_TOLERANCE_DEG:
-        return NavigationDecision('terminal_align', _turn_toward_tag(pose))
+        return NavigationDecision('terminal_align', _turn_toward_tag(pose), 'bearing_not_centered')
     if pose.facing_error_deg <= FACING_TOLERANCE_DEG:
-        return NavigationDecision('arrived', None)
+        return NavigationDecision('arrived', None, 'within_arrival_tolerances')
     lateral_error = pose.normal_bearing_deg - pose.bearing_deg
     if abs(lateral_error) <= LATERAL_DIRECTION_EPSILON_DEG:
-        return NavigationDecision('terminal_align', None)
+        return NavigationDecision('terminal_align', None, 'lateral_direction_uncertain')
     action = LEFT_MOVE_ACTION if lateral_error > 0 else RIGHT_MOVE_ACTION
-    return NavigationDecision('terminal_align', action)
+    return NavigationDecision('terminal_align', action, 'facing_not_aligned')
 
 
 def _turn_toward_tag(pose: TagPose) -> str:
@@ -107,12 +107,12 @@ class NavigationController:
         hardware: NavigationHardware,
         is_cancel_requested: Callable[[], bool],
         publish_target_arrived: Callable[[int, int, int], None],
-        publish_step: Callable[[dict], None],
+        replay: NavigationReplay,
     ) -> None:
         self._hardware = hardware
         self._is_cancel_requested = is_cancel_requested
         self._publish_target_arrived = publish_target_arrived
-        self._publish_step = publish_step
+        self._replay = replay
 
     def execute(
         self,
@@ -121,8 +121,7 @@ class NavigationController:
     ) -> NavigationResult:
         """依次到达目标，整条路线共用 deadline。"""
         for index, tag_id in enumerate(target_tags):
-            trace = NavigationTrace(tag_id, index, len(target_tags), self._publish_step)
-            result = self._navigate_to_tag(tag_id, deadline_unix_ms, trace)
+            result = self._navigate_to_tag(tag_id, index, deadline_unix_ms)
             if not result.succeeded:
                 return result
             self._publish_target_arrived(tag_id, index, len(target_tags))
@@ -131,79 +130,67 @@ class NavigationController:
     def _navigate_to_tag(
         self,
         tag_id: int,
+        target_index: int,
         deadline_unix_ms: int,
-        trace: NavigationTrace,
     ) -> NavigationResult:
         phase = 'search_align'
         arrived_frames = 0
-        pending: PendingStep | None = None
+        previous_action_frame: int | None = None
         while True:
             failure = self._check_stop_conditions(deadline_unix_ms)
             if failure:
-                if pending is not None:
-                    trace.stopped(pending, failure.error_code)
+                if previous_action_frame is not None:
+                    self._replay.observation_failed(previous_action_frame, failure.error_code)
                 return failure
             try:
-                frame = self._observe_with_trace(trace, pending, tag_id)
-                pending = None
+                try:
+                    frame = self._hardware.observe_tags()
+                except Exception as error:
+                    if previous_action_frame is not None:
+                        self._replay.observation_failed(
+                            previous_action_frame,
+                            getattr(error, 'error_code', type(error).__name__),
+                        )
+                    raise
                 decision = decide(frame.poses.get(tag_id), phase)
-                if decision.phase != phase:
-                    trace.phase_changed(decision.phase, frame.poses.get(tag_id))
-                phase = decision.phase
                 if decision.phase == 'arrived':
                     arrived_frames += 1
+                else:
+                    arrived_frames = 0
+                frame_id = self._replay.record(
+                    frame, tag_id, target_index, phase, decision.phase,
+                    decision.reason, decision.action_group, arrived_frames,
+                    previous_action_frame,
+                )
+                previous_action_frame = None
+                phase = decision.phase
+                if decision.phase == 'arrived':
                     if arrived_frames == ARRIVAL_CONFIRMATIONS:
                         return NavigationResult(
                             True, '', 'Target reached with stable observations'
                         )
                     continue
-                arrived_frames = 0
                 if decision.action_group is not None:
-                    pending = self._run_step(
-                        trace, decision.phase, decision.action_group, frame, tag_id
-                    )
+                    self._run_step(frame_id, decision.action_group)
+                    previous_action_frame = frame_id
             except MotionInterrupted as error:
                 return NavigationResult(False, error.error_code, str(error))
             except MotionExecutionError as error:
                 return NavigationResult(False, 'MOTION_FAILED', str(error))
 
-    def _observe_with_trace(
-        self,
-        trace: NavigationTrace,
-        pending: PendingStep | None,
-        tag_id: int,
-    ) -> FrameObservation:
-        try:
-            frame = self._hardware.observe_tags()
-        except Exception as error:
-            if pending is not None:
-                trace.stopped(pending, getattr(error, 'error_code', 'OBSERVATION_FAILED'))
-            raise
-        if pending is not None:
-            trace.observed(pending, frame.poses.get(tag_id), frame.captured_at_monotonic)
-        return frame
-
-    def _run_step(
-        self,
-        trace: NavigationTrace,
-        phase: str,
-        action_group: str,
-        frame: FrameObservation,
-        tag_id: int,
-    ) -> PendingStep:
-        step = trace.started(
-            phase,
-            action_group,
-            frame.poses.get(tag_id),
-            frame.captured_at_monotonic,
-        )
+    def _run_step(self, frame_id: int, action_group: str) -> None:
+        started_at = time.monotonic()
         try:
             self._hardware.execute_action(action_group)
         except Exception as error:
-            trace.stopped(step, getattr(error, 'error_code', 'MOTION_FAILED'))
+            self._replay.action_finished(
+                frame_id, round((time.monotonic() - started_at) * 1000),
+                getattr(error, 'error_code', type(error).__name__),
+            )
             raise
-        trace.motion_finished(step)
-        return step
+        self._replay.action_finished(
+            frame_id, round((time.monotonic() - started_at) * 1000)
+        )
 
     def _check_stop_conditions(self, deadline_unix_ms: int) -> NavigationResult | None:
         if self._is_cancel_requested():

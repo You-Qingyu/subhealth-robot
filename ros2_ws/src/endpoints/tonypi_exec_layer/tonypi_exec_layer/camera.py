@@ -5,6 +5,7 @@ from pathlib import Path
 import time
 
 import cv2
+import numpy as np
 
 from .tag_pose import CALIBRATED_IMAGE_SIZE, TagPose, TagPoseEstimator
 
@@ -19,6 +20,7 @@ class FrameObservation:
 
     poses: dict[int, TagPose]
     captured_at_monotonic: float
+    image: np.ndarray
 
 
 class TagCamera:
@@ -73,7 +75,7 @@ class TagCamera:
                 '摄像头输出尺寸与 640x480 相机标定不一致'
             )
         captured_at = time.monotonic()
-        return FrameObservation(self._estimator.estimate_all(image), captured_at)
+        return FrameObservation(self._estimator.estimate_all(image), captured_at, image)
 
     def _discard_warmup_frames(self) -> None:
         for _ in range(self._warmup_frames):

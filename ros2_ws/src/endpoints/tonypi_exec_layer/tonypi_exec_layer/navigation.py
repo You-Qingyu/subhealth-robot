@@ -57,7 +57,7 @@ class NavigationResult:
 def decide(pose: TagPose | None, phase: str) -> NavigationDecision:
     """仅根据当前正前方位姿与状态决定下一步。"""
     if pose is None:
-        return NavigationDecision('search_align', TURN_LEFT_ACTION, 'target_not_detected')
+        return NavigationDecision('search_align', None, 'target_not_detected')
     if abs(pose.bearing_deg) > SEARCH_HALF_ANGLE_DEG:
         return NavigationDecision('search_align', TURN_LEFT_ACTION, 'outside_search_range')
     if abs(pose.bearing_deg) > APPROACH_HALF_ANGLE_DEG:

@@ -7,6 +7,8 @@ members = [
     "ros2_ws/src/services/execution",
     "ros2_ws/src/services/orchestration",
     "ros2_ws/src/services/gateway",
+    "ros2_ws/src/services/map",
+    "ros2_ws/src/services/pathfinding",
 ]
 
 [workspace.package]

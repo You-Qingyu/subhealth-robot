@@ -91,23 +91,52 @@ class NavigationReplay:
     def _write_index(self) -> None:
         page = """<!doctype html>
 <html lang="zh"><meta charset="utf-8"><title>TonyPi 逐帧回放</title>
-<style>body{background:#202124;color:#eee;font:16px sans-serif;text-align:center}
-img{max-width:95vw;max-height:80vh}a{color:#8ab4f8}button{padding:8px;margin:8px}</style>
+<style>
+body{background:#202124;color:#eee;font:16px sans-serif;margin:0}
+h1{text-align:center}
+.controls{text-align:center}
+button{padding:8px;margin:8px}
+a{color:#8ab4f8}
+.replay{display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,520px);gap:16px;align-items:start;padding:0 16px}
+img{display:block;max-width:100%;height:auto;margin:auto}
+pre{background:#2b2c30;border-radius:4px;margin:0;max-height:80vh;overflow:auto;padding:16px;text-align:left;white-space:pre-wrap;word-break:break-word}
+@media(max-width:900px){.replay{grid-template-columns:1fr}pre{max-height:none}}
+</style>
 <h1>TonyPi 逐帧回放</h1>
-<button onclick="show(index-1)">上一帧</button><span id="counter"></span>
-<button onclick="show(index+1)">下一帧</button>
-<button onclick="toggle()" id="play">播放</button>
-<a id="data" target="_blank">查看同名 JSON</a><br>
-<img id="frame" alt="当前决策帧">
+<div class="controls">
+  <button onclick="show(index-1)">上一帧</button><span id="counter"></span>
+  <button onclick="show(index+1)">下一帧</button>
+  <button onclick="toggle()" id="play">播放</button>
+  <a id="data" target="_blank">查看同名 JSON</a>
+</div>
+<div class="replay">
+  <img id="frame" alt="当前决策帧">
+  <pre id="details">读取帧记录中……</pre>
+</div>
 <script>
 const total = FRAME_COUNT;
-let index = 1, timer = null;
-function show(number) {
+let index = 1, timer = null, requestNumber = 0;
+async function show(number) {
   index = Math.max(1, Math.min(total, number));
   const stem = String(index).padStart(6, '0');
+  const currentRequest = ++requestNumber;
   document.getElementById('frame').src = stem + '.png';
   document.getElementById('data').href = stem + '.json';
   document.getElementById('counter').textContent = `${index} / ${total}`;
+  const details = document.getElementById('details');
+  details.textContent = '读取帧记录中……';
+  try {
+    const response = await fetch(stem + '.json', {cache: 'no-store'});
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const record = await response.json();
+    if (currentRequest === requestNumber) {
+      details.textContent = JSON.stringify(record, null, 2);
+    }
+  } catch (error) {
+    if (currentRequest === requestNumber) {
+      details.textContent = `无法读取 ${stem}.json：${error}`;
+    }
+  }
 }
 function toggle() {
   if (timer) { clearInterval(timer); timer = null; }
@@ -139,34 +168,4 @@ def _annotate(frame: FrameObservation, record: dict) -> np.ndarray:
         )
     height, width = image.shape[:2]
     cv2.drawMarker(image, (width // 2, height // 2), (255, 255, 0))
-    canvas = np.full((height, width + 440, 3), 32, dtype=np.uint8)
-    canvas[:, :width] = image
-    pose = frame.poses.get(record['target_id'])
-    lines = [
-        f"frame {record['frame_id']}  target {record['target_id']}",
-        f"phase: {record['phase_before']} -> {record['phase_after']}",
-        f"reason: {record['reason']}",
-        f"action: {record['action_group'] or 'none'}",
-        f"previous action frame: {record['previous_action_frame']}",
-        f"arrival confirmations: {record['arrival_confirmations']}",
-    ]
-    if pose is None:
-        lines.append('TARGET NOT DETECTED')
-    else:
-        lines += [
-            f'distance_m: {pose.distance_m:.3f}',
-            f'forward_m: {pose.forward_m:.3f}',
-            f'lateral_m: {pose.lateral_m:.3f}',
-            f'vertical_m: {pose.vertical_m:.3f}',
-            f'bearing_deg: {pose.bearing_deg:.2f}',
-            f'normal_bearing_deg: {pose.normal_bearing_deg:.2f}',
-            f'facing_error_deg: {pose.facing_error_deg:.2f}',
-            f'image_margin_px: {pose.image_margin_px:.2f}',
-            f'reprojection_error_px: {pose.reprojection_error_px:.2f}',
-        ]
-    for index, line in enumerate(lines):
-        cv2.putText(
-            canvas, line, (width + 12, 28 + index * 29),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.48, (240, 240, 240), 1, cv2.LINE_AA,
-        )
-    return canvas
+    return image

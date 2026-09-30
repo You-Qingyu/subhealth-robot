@@ -186,6 +186,9 @@ class TonyPiExecLayerNode(Node):
                         )
                     ),
                     replay=replay,
+                    log_event=lambda event: self._log_navigation_event(
+                        request.task_id, event,
+                    ),
                 )
                 navigation_result = controller.execute(
                     payload['target_tags'],
@@ -204,6 +207,14 @@ class TonyPiExecLayerNode(Node):
             )
         goal_handle.succeed()
         return self._result(goal_handle, 'succeeded', '', navigation_result.message)
+
+    def _log_navigation_event(self, task_id: str, event: dict) -> None:
+        payload = {'task_id': task_id, **event}
+        event_name = event.get('event', 'event')
+        self.get_logger().info(
+            f'tonypi_navigation_{event_name} '
+            f'{json.dumps(payload, ensure_ascii=False, separators=(",", ":"))}'
+        )
 
     def _validate_goal(self, request: ExecuteTask.Goal) -> None:
         if not request.task_id:

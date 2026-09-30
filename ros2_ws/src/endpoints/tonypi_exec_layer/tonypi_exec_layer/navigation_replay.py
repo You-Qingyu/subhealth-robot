@@ -32,6 +32,7 @@ class NavigationReplay:
         action_group: str | None,
         confirmations: int,
         previous_action_frame: int | None,
+        decision_at_monotonic: float,
     ) -> int:
         self._number += 1
         number = self._number
@@ -43,6 +44,7 @@ class NavigationReplay:
             'target_id': tag_id,
             'target_index': target_index,
             'captured_at_monotonic': frame.captured_at_monotonic,
+            'decision_at_monotonic': decision_at_monotonic,
             'poses': {str(key): asdict(value) for key, value in frame.poses.items()},
             'target_pose': asdict(pose) if pose else None,
             'phase_before': phase_before,
@@ -51,8 +53,11 @@ class NavigationReplay:
             'action_group': action_group,
             'arrival_confirmations': confirmations,
             'previous_action_frame': previous_action_frame,
+            'action_started_at_monotonic': None,
+            'action_finished_at_monotonic': None,
             'action_elapsed_ms': None,
             'action_error': None,
+            'action_effect': None,
             'next_observation_error': None,
             'raw_image': f'raw/{stem}.png',
         }
@@ -63,15 +68,28 @@ class NavigationReplay:
             raise OSError(f'无法保存标注观测帧: {stem}')
         self._write_record(number, record)
         self._write_index()
+        if previous_action_frame is not None:
+            self._record_action_effect(previous_action_frame, number, frame)
         return number
 
+    def action_started(self, frame_id: int, started_at_monotonic: float) -> None:
+        path = self.directory / f'{frame_id:06d}.json'
+        record = json.loads(path.read_text(encoding='utf-8'))
+        record['action_started_at_monotonic'] = started_at_monotonic
+        self._write_record(frame_id, record)
+
     def action_finished(
-        self, frame_id: int, elapsed_ms: int, error: str | None = None
+        self,
+        frame_id: int,
+        elapsed_ms: int,
+        error: str | None = None,
+        finished_at_monotonic: float | None = None,
     ) -> None:
         path = self.directory / f'{frame_id:06d}.json'
         record = json.loads(path.read_text(encoding='utf-8'))
         record['action_elapsed_ms'] = elapsed_ms
         record['action_error'] = error
+        record['action_finished_at_monotonic'] = finished_at_monotonic
         self._write_record(frame_id, record)
 
     def observation_failed(self, frame_id: int, error_code: str) -> None:
@@ -79,6 +97,41 @@ class NavigationReplay:
         record = json.loads(path.read_text(encoding='utf-8'))
         record['next_observation_error'] = error_code
         self._write_record(frame_id, record)
+
+    def _record_action_effect(
+        self,
+        action_frame_id: int,
+        observation_frame_id: int,
+        frame: FrameObservation,
+    ) -> None:
+        path = self.directory / f'{action_frame_id:06d}.json'
+        record = json.loads(path.read_text(encoding='utf-8'))
+        before = record['target_pose']
+        after_pose = frame.poses.get(record['target_id'])
+        after = asdict(after_pose) if after_pose else None
+        finished_at = record['action_finished_at_monotonic']
+        observation_at = frame.captured_at_monotonic
+        record['action_effect'] = {
+            'next_observation_frame_id': observation_frame_id,
+            'next_observation_at_monotonic': observation_at,
+            'next_observation_delay_ms': (
+                round((observation_at - finished_at) * 1000)
+                if finished_at is not None else None
+            ),
+            'target_detected': after is not None,
+            'distance_delta_m': _delta(before, after, 'distance_m'),
+            'bearing_delta_deg': _delta(before, after, 'bearing_deg'),
+            'normal_bearing_delta_deg': _delta(
+                before, after, 'normal_bearing_deg'
+            ),
+            'facing_error_delta_deg': _delta(
+                before, after, 'facing_error_deg'
+            ),
+            'image_margin_delta_px': _delta(
+                before, after, 'image_margin_px'
+            ),
+        }
+        self._write_record(action_frame_id, record)
 
     def _write_record(self, frame_id: int, record: dict) -> None:
         path = self.directory / f'{frame_id:06d}.json'
@@ -169,3 +222,9 @@ def _annotate(frame: FrameObservation, record: dict) -> np.ndarray:
     height, width = image.shape[:2]
     cv2.drawMarker(image, (width // 2, height // 2), (255, 255, 0))
     return image
+
+
+def _delta(before: dict | None, after: dict | None, field: str) -> float | None:
+    if before is None or after is None:
+        return None
+    return after[field] - before[field]

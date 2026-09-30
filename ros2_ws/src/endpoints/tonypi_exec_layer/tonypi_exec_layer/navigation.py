@@ -108,11 +108,13 @@ class NavigationController:
         is_cancel_requested: Callable[[], bool],
         publish_target_arrived: Callable[[int, int, int], None],
         replay: NavigationReplay,
+        log_event: Callable[[dict], None],
     ) -> None:
         self._hardware = hardware
         self._is_cancel_requested = is_cancel_requested
         self._publish_target_arrived = publish_target_arrived
         self._replay = replay
+        self._log_event = log_event
 
     def execute(
         self,
@@ -153,6 +155,7 @@ class NavigationController:
                         )
                     raise
                 decision = decide(frame.poses.get(tag_id), phase)
+                decision_at = time.monotonic()
                 if decision.phase == 'arrived':
                     arrived_frames += 1
                 else:
@@ -161,7 +164,22 @@ class NavigationController:
                     frame, tag_id, target_index, phase, decision.phase,
                     decision.reason, decision.action_group, arrived_frames,
                     previous_action_frame,
+                    decision_at,
                 )
+                self._log_event({
+                    'event': 'decision',
+                    'frame_id': frame_id,
+                    'captured_at_monotonic': frame.captured_at_monotonic,
+                    'decision_at_monotonic': decision_at,
+                    'target_id': tag_id,
+                    'phase_before': phase,
+                    'phase_after': decision.phase,
+                    'reason': decision.reason,
+                    'action_group': decision.action_group,
+                    'arrival_confirmations': arrived_frames,
+                    'previous_action_frame': previous_action_frame,
+                    'pose': _pose_summary(frame.poses.get(tag_id)),
+                })
                 previous_action_frame = None
                 phase = decision.phase
                 if decision.phase == 'arrived':
@@ -180,17 +198,55 @@ class NavigationController:
 
     def _run_step(self, frame_id: int, action_group: str) -> None:
         started_at = time.monotonic()
+        self._replay.action_started(frame_id, started_at)
+        self._log_event({
+            'event': 'action_started',
+            'frame_id': frame_id,
+            'action_group': action_group,
+            'started_at_monotonic': started_at,
+        })
         try:
             self._hardware.execute_action(action_group)
         except Exception as error:
+            finished_at = time.monotonic()
             self._replay.action_finished(
-                frame_id, round((time.monotonic() - started_at) * 1000),
+                frame_id,
+                round((finished_at - started_at) * 1000),
+                getattr(error, 'error_code', type(error).__name__),
+                finished_at,
+            )
+            self._log_action_finished(
+                frame_id, action_group, started_at, finished_at,
                 getattr(error, 'error_code', type(error).__name__),
             )
             raise
+        finished_at = time.monotonic()
         self._replay.action_finished(
-            frame_id, round((time.monotonic() - started_at) * 1000)
+            frame_id,
+            round((finished_at - started_at) * 1000),
+            finished_at_monotonic=finished_at,
         )
+        self._log_action_finished(
+            frame_id, action_group, started_at, finished_at, None,
+        )
+
+    def _log_action_finished(
+        self,
+        frame_id: int,
+        action_group: str,
+        started_at: float,
+        finished_at: float,
+        error: str | None,
+    ) -> None:
+        self._log_event({
+            'event': 'action_finished',
+            'frame_id': frame_id,
+            'action_group': action_group,
+            'started_at_monotonic': started_at,
+            'finished_at_monotonic': finished_at,
+            'elapsed_ms': round((finished_at - started_at) * 1000),
+            'error': error,
+        })
 
     def _check_stop_conditions(self, deadline_unix_ms: int) -> NavigationResult | None:
         if self._is_cancel_requested():
@@ -198,3 +254,19 @@ class NavigationController:
         if time.time_ns() // 1_000_000 >= deadline_unix_ms:
             return NavigationResult(False, 'DEADLINE_EXCEEDED', 'Task deadline elapsed')
         return None
+
+
+def _pose_summary(pose: TagPose | None) -> dict | None:
+    if pose is None:
+        return None
+    return {
+        'distance_m': pose.distance_m,
+        'forward_m': pose.forward_m,
+        'lateral_m': pose.lateral_m,
+        'vertical_m': pose.vertical_m,
+        'bearing_deg': pose.bearing_deg,
+        'normal_bearing_deg': pose.normal_bearing_deg,
+        'facing_error_deg': pose.facing_error_deg,
+        'reprojection_error_px': pose.reprojection_error_px,
+        'image_margin_px': pose.image_margin_px,
+    }

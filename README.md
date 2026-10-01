@@ -24,6 +24,7 @@ Gateway、Orchestration、Execution、Repository 和 Sensor 服务位于设备�
  docs/decisions/                      当前架构决策和设计动机
 docs/guide/                          使用指南、ROS mock 和设备 endpoint 指南
 ros2_ws/config/devices.yaml           ROS 设备/action 注册表示例
+ros2_ws/config/maps/default.yaml      默认地图配置
 ros2_ws/src/control_plane/            ROS task client 控制平面适配
 ros2_ws/src/interfaces/               ROS action/message 接口定义
 ros2_ws/src/mocks/                    mock execution 和 sensor 节点
@@ -77,7 +78,11 @@ workspace。`make humble` 和 `make jazzy` 都会在镜像构建完成后进入�
 ```dotenv
 ROS_TASK_CLIENT_CONFIG=ros2_ws/config/devices.yaml
 GATEWAY_HTTP_PORT=5000
+MAP_CONFIG=ros2_ws/config/maps/default.yaml
 ```
+
+直接使用 `cargo run -p gateway` 时也必须设置 `ROS_TASK_CLIENT_CONFIG` 和
+`MAP_CONFIG`；推荐使用 `make run server`，它会传递开发环境的默认配置。
 
 命令行参数仍可覆盖 `.env`，例如：
 

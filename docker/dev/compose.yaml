@@ -28,6 +28,7 @@ services:
       # Keep generated ROS/Cargo state separate for each distro while retaining
       # the shared named volume. Override ROS_BUILD_ROOT when needed.
       ROS_BUILD_ROOT: ${ROS_BUILD_ROOT:-/ws/${ROS_DISTRO:-jazzy}}
+      MAP_CONFIG: ${MAP_CONFIG:-ros2_ws/config/maps/default.yaml}
     volumes:
       - ../..:/workspace
       - ros2rust_ws:/ws

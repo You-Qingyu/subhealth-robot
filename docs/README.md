@@ -19,6 +19,6 @@
 - ROS endpoint：`ros2_ws/src/mocks` 和 `ros2_ws/src/endpoints` 中的节点代码。
 - HTTP 和 WebSocket 路由：`ros2_ws/src/services/gateway` 中的代码。
 - 配置格式及校验：`ros2_ws/src/control_plane/ros_task_client/src/config.rs`。
-- 地图格式及校验：`ros2_ws/src/services/map/src/graph.rs`；地图数据样例为 `ros2_ws/config/maps/default.json`。
+- 地图格式及校验：`ros2_ws/src/services/map/src/graph.rs`；地图数据样例为 `ros2_ws/config/maps/default.yaml`。
 
 历史 RFC 和未实现的设计不作为当前实现依据；它们仍可通过 Git 历史查阅。

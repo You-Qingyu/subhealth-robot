@@ -11,8 +11,10 @@ use std::sync::Arc;
 use std::{future::Future, pin::Pin};
 
 mod error;
+mod pathfinding;
 
 pub use error::OrchestrationError;
+pub use pathfinding::{Path, PathfindingError};
 
 /// 编排层使用的设备无关执行接口。
 ///
@@ -36,15 +38,36 @@ pub trait ExecutionPort: Send + Sync {
 pub struct Orchestrator {
     execution: Arc<dyn ExecutionPort>,
     repository: Arc<dyn TaskRepository>,
+    map: map::MapData,
 }
 
 impl Orchestrator {
-    /// 创建一个使用指定执行端和任务 Repository 的编排器。
-    pub fn new(execution: Arc<dyn ExecutionPort>, repository: Arc<dyn TaskRepository>) -> Self {
-        Self {
+    /// 创建一个使用指定执行端、任务 Repository 和已校验地图的编排器。
+    ///
+    /// 拒绝包含重复节点、悬空边、重复名称或不支持版本的地图。
+    pub fn new(
+        execution: Arc<dyn ExecutionPort>,
+        repository: Arc<dyn TaskRepository>,
+        map: map::MapData,
+    ) -> Result<Self, OrchestrationError> {
+        map.validate()?;
+        Ok(Self {
             execution,
             repository,
-        }
+            map,
+        })
+    }
+
+    /// 按地图名称解析目标节点。
+    pub fn resolve_target(&self, name: &str) -> Result<map::NodeId, map::MapError> {
+        self.map.node_by_name(name)
+    }
+
+    /// 规划两个命名地图目标之间的最小代价路径。
+    pub fn shortest_path(&self, from: &str, to: &str) -> Result<Path, OrchestrationError> {
+        let start = self.resolve_target(from)?;
+        let goal = self.resolve_target(to)?;
+        Ok(pathfinding::shortest_path(&self.map, start, goal)?)
     }
 
     /// 验证、创建并启动一个任务。
@@ -106,6 +129,18 @@ impl Orchestrator {
             .apply_result(result)
             .map_err(OrchestrationError::from)?;
         Ok(record)
+    }
+}
+
+impl From<map::MapError> for OrchestrationError {
+    fn from(error: map::MapError) -> Self {
+        Self::Map(error.to_string())
+    }
+}
+
+impl From<PathfindingError> for OrchestrationError {
+    fn from(error: PathfindingError) -> Self {
+        Self::Pathfinding(error)
     }
 }
 

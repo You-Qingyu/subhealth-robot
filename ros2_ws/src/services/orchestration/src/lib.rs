@@ -72,16 +72,20 @@ impl Orchestrator {
 
     /// 验证、创建并启动一个任务。
     ///
-    /// 调用顺序固定为：执行端验证、Repository 创建记录、执行端启动任务。
+    /// 调用顺序固定为：补全目标路线、执行端验证、Repository 创建记录、执行端启动任务。
+    /// 目标路线中的每一对相邻 Tag 都会替换为地图上的最短路径；相邻路径的连接点不会重复。
     /// 如果任务已经创建但执行启动失败，编排器会尝试将任务写入失败终态。
     ///
     /// # 错误
     ///
-    /// 返回执行端或 [`platform::TaskRepository`] 的业务错误。
+    /// 目标为空、目标不在地图上或目标之间不可达时，不会创建任务；其他错误来自执行端或
+    /// [`platform::TaskRepository`]。
     pub async fn submit(
         &self,
         task: Task,
     ) -> Result<(TaskRecord, ExecutionSession), OrchestrationError> {
+        let target = expand_target_route(&self.map, &task.target)?;
+        let task = Task { target, ..task };
         self.execution
             .validate(&task)
             .await
@@ -130,6 +134,42 @@ impl Orchestrator {
             .map_err(OrchestrationError::from)?;
         Ok(record)
     }
+}
+
+fn expand_target_route(
+    map: &map::MapData,
+    targets: &[i32],
+) -> Result<Vec<i32>, OrchestrationError> {
+    let first = *targets.first().ok_or(OrchestrationError::InvalidTarget)?;
+    let first_node = node_id_for_target(first)?;
+    let mut route = vec![first];
+
+    if targets.len() == 1 {
+        pathfinding::shortest_path(map, first_node, first_node)?;
+        return Ok(route);
+    }
+
+    for pair in targets.windows(2) {
+        let start = node_id_for_target(pair[0])?;
+        let goal = node_id_for_target(pair[1])?;
+        let path = pathfinding::shortest_path(map, start, goal)?;
+        append_path(&mut route, path.nodes)?;
+    }
+
+    Ok(route)
+}
+
+fn node_id_for_target(target: i32) -> Result<map::NodeId, OrchestrationError> {
+    u32::try_from(target)
+        .map(map::NodeId)
+        .map_err(|_| OrchestrationError::InvalidTarget)
+}
+
+fn append_path(route: &mut Vec<i32>, nodes: Vec<map::NodeId>) -> Result<(), OrchestrationError> {
+    for node in nodes.into_iter().skip(1) {
+        route.push(i32::try_from(node.0).map_err(|_| OrchestrationError::InvalidTarget)?);
+    }
+    Ok(())
 }
 
 impl From<map::MapError> for OrchestrationError {

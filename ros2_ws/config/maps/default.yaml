@@ -1,6 +1,8 @@
 version: 1
 name: default
 nodes:
+  - id: 0
+    name: tag_0
   - id: 1
     name: entrance
   - id: 2

@@ -24,6 +24,8 @@ DEFAULT_TASK_TIMEOUT_S = 120.0
 
 TURN_LEFT_ACTION = 'turn_left_small_step'
 TURN_RIGHT_ACTION = 'turn_right_small_step'
+SEARCH_TURN_LEFT_ACTION = 'turn_left'
+SEARCH_TURN_RIGHT_ACTION = 'turn_right'
 TERMINAL_TURN_LEFT_ACTION = 'turn_left_small_step_a'
 TERMINAL_TURN_RIGHT_ACTION = 'turn_right_small_step_a'
 LEFT_MOVE_ACTION = 'left_move'
@@ -33,6 +35,8 @@ BACKWARD_ACTION = 'back_one_step'
 REQUIRED_ACTION_GROUPS = (
     TURN_LEFT_ACTION,
     TURN_RIGHT_ACTION,
+    SEARCH_TURN_LEFT_ACTION,
+    SEARCH_TURN_RIGHT_ACTION,
     TERMINAL_TURN_LEFT_ACTION,
     TERMINAL_TURN_RIGHT_ACTION,
     LEFT_MOVE_ACTION,
@@ -101,13 +105,16 @@ class _TargetProgress:
     def finish_scan(self, direction: TurnDirection | None) -> None:
         if direction is not None:
             self.scan_action = (
-                TURN_LEFT_ACTION if direction == TurnDirection.LEFT else TURN_RIGHT_ACTION
+                SEARCH_TURN_LEFT_ACTION
+                if direction == TurnDirection.LEFT else SEARCH_TURN_RIGHT_ACTION
             )
             self.phase = 'TURN_TOWARD_DETECTION'
         else:
             self.phase = 'BODY_SCAN'
             if self.body_action is None:
-                self.body_action = random.choice((TURN_LEFT_ACTION, TURN_RIGHT_ACTION))
+                self.body_action = random.choice(
+                    (SEARCH_TURN_LEFT_ACTION, SEARCH_TURN_RIGHT_ACTION)
+                )
 
 
 def decide(pose: TagPose | None) -> NavigationDecision:

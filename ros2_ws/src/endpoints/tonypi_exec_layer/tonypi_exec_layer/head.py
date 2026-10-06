@@ -11,9 +11,8 @@ HEAD_MOVE_TIME_S = 0.5
 HEAD_SETTLE_TIME_S = 0.2
 HEAD_SCAN_MOVE_TIME_S = 0.25
 HEAD_SCAN_PULSES = (
-    1450, 1400, 1350, 1300, 1250, 1200,
-    1250, 1300, 1350, 1400, 1450, 1500,
-    1550, 1600, 1650, 1700, 1750, 1800,
+    *range(1450, 499, -50),
+    *range(550, 2501, 50),
 )
 
 
@@ -39,8 +38,8 @@ class HeadAligner:
 
     def turn_to(self, pulse: int) -> None:
         """将水平舵机移至扫描范围内的指定位置，调用方负责等待稳定。"""
-        if pulse < 1200 or pulse > 1800:
-            raise ValueError('云台扫描位置超出已使用的安全范围')
+        if pulse < 500 or pulse > 2500:
+            raise ValueError('云台扫描位置超出安全范围')
         self._board.pwm_servo_set_position(
             HEAD_SCAN_MOVE_TIME_S,
             [[HEAD_HORIZONTAL_SERVO, pulse]],

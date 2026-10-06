@@ -30,7 +30,8 @@ TERMINAL_TURN_LEFT_ACTION = 'turn_left_small_step_a'
 TERMINAL_TURN_RIGHT_ACTION = 'turn_right_small_step_a'
 LEFT_MOVE_ACTION = 'left_move'
 RIGHT_MOVE_ACTION = 'right_move'
-FORWARD_ACTION = 'go_forward_one_step'
+FORWARD_LEFT_ACTION = 'go_forward_one_step_left'
+FORWARD_RIGHT_ACTION = 'go_forward_one_step_right'
 BACKWARD_ACTION = 'back_one_step'
 REQUIRED_ACTION_GROUPS = (
     TURN_LEFT_ACTION,
@@ -41,7 +42,8 @@ REQUIRED_ACTION_GROUPS = (
     TERMINAL_TURN_RIGHT_ACTION,
     LEFT_MOVE_ACTION,
     RIGHT_MOVE_ACTION,
-    FORWARD_ACTION,
+    FORWARD_LEFT_ACTION,
+    FORWARD_RIGHT_ACTION,
     BACKWARD_ACTION,
 )
 
@@ -76,7 +78,7 @@ class _TargetProgress:
     arrived_frames: int = 0
     previous_action_frame: int | None = None
 
-    def decide(self, pose: TagPose | None) -> NavigationDecision:
+    def decide(self, pose: TagPose | None, forward_action: str) -> NavigationDecision:
         if pose is not None:
             self.body_steps = 0
             self.body_action = None
@@ -89,7 +91,7 @@ class _TargetProgress:
                 action = self.body_action if self.phase == 'BODY_SCAN' else self.scan_action
                 decision = NavigationDecision(self.phase, action, 'body_search')
         else:
-            decision = decide(pose)
+            decision = decide(pose, forward_action)
         self.arrived_frames = (
             self.arrived_frames + 1 if decision.phase == 'ARRIVAL_CONFIRM' else 0
         )
@@ -117,14 +119,14 @@ class _TargetProgress:
                 )
 
 
-def decide(pose: TagPose | None) -> NavigationDecision:
+def decide(pose: TagPose | None, forward_action: str) -> NavigationDecision:
     """正前方观测分发可见目标；不可见交给云台搜索。"""
     if pose is None:
         return NavigationDecision('HEAD_SCAN', None, 'target_not_detected')
     if abs(pose.bearing_deg) > APPROACH_HALF_ANGLE_DEG:
         return NavigationDecision('ALIGN_VISIBLE_TARGET', _turn_toward_tag(pose), 'outside_approach_range')
     if pose.distance_m > TARGET_DISTANCE_M + DISTANCE_TOLERANCE_M:
-        return NavigationDecision('APPROACH', FORWARD_ACTION, 'distance_too_far')
+        return NavigationDecision('APPROACH', forward_action, 'distance_too_far')
     return _terminal_decision(pose)
 
 
@@ -171,6 +173,7 @@ class NavigationController:
         self._publish_target_arrived = publish_target_arrived
         self._replay = replay
         self._log_event = log_event
+        self._next_forward_action = FORWARD_LEFT_ACTION
 
     def execute(
         self,
@@ -178,6 +181,7 @@ class NavigationController:
         deadline_unix_ms: int,
     ) -> NavigationResult:
         """依次到达目标，整条路线共用 deadline。"""
+        self._next_forward_action = FORWARD_LEFT_ACTION
         for index, tag_id in enumerate(target_tags):
             result = self._navigate_to_tag(tag_id, index, deadline_unix_ms)
             if not result.succeeded:
@@ -227,7 +231,7 @@ class NavigationController:
                     getattr(error, 'error_code', type(error).__name__),
                 )
             raise
-        decision = progress.decide(frame.poses.get(tag_id))
+        decision = progress.decide(frame.poses.get(tag_id), self._next_forward_action)
         decision_at = time.monotonic()
         annotation = ObservationAnnotation(
             phase_before=progress.phase,
@@ -293,6 +297,11 @@ class NavigationController:
         if decision.action_group is not None:
             self._run_step(frame_id, decision.action_group)
             progress.finish_action(decision, frame_id)
+            if decision.action_group in (FORWARD_LEFT_ACTION, FORWARD_RIGHT_ACTION):
+                self._next_forward_action = (
+                    FORWARD_RIGHT_ACTION
+                    if decision.action_group == FORWARD_LEFT_ACTION else FORWARD_LEFT_ACTION
+                )
         return None
 
     def _record_head_sample(

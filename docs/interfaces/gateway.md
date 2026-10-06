@@ -6,6 +6,7 @@
 
 ## HTTP
 
+- `GET /api/v1/tags`：返回启动时加载的 Tag ID 和地点名称（当前配置为中文），不暴露边与权重；修改地图文件后需重启 Gateway。
 - `GET /api/v1/tasks`：列出任务。
 - `POST /api/v1/tasks`：提交任务，返回 `202 Accepted` 和 `TaskRecord`。
 - `GET /api/v1/tasks/{id}`：读取任务记录。

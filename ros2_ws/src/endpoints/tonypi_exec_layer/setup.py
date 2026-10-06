@@ -20,6 +20,8 @@ setup(
     entry_points={
         'console_scripts': [
             'tonypi_exec_layer_node = tonypi_exec_layer.node:main',
+            'tonypi_capture_frame = tonypi_exec_layer.capture_frame:main',
+            'tonypi_observe_tag = tonypi_exec_layer.observe_tag:main',
         ],
     },
 )

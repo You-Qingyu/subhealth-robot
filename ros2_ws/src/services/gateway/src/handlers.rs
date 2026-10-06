@@ -9,6 +9,10 @@ use axum::{
     Json,
 };
 
+pub async fn list_tags(State(state): State<AppState>) -> Json<Vec<map::MapNode>> {
+    Json(state.tags().await)
+}
+
 pub async fn list_tasks(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<platform::TaskRecord>>, StatusCode> {
@@ -62,6 +66,7 @@ fn submission_status(error: OrchestrationError) -> StatusCode {
         | OrchestrationError::Duplicate
         | OrchestrationError::TerminalTask => StatusCode::CONFLICT,
         OrchestrationError::InvalidTarget => StatusCode::BAD_REQUEST,
+        OrchestrationError::Map(_) | OrchestrationError::Pathfinding(_) => StatusCode::BAD_REQUEST,
         OrchestrationError::Repository(_) => StatusCode::INTERNAL_SERVER_ERROR,
         OrchestrationError::Execution(_) => StatusCode::BAD_GATEWAY,
         OrchestrationError::UnknownTask => StatusCode::INTERNAL_SERVER_ERROR,

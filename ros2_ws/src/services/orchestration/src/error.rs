@@ -16,6 +16,12 @@ pub enum OrchestrationError {
     /// 任务没有有效目标。
     #[error("task target must not be empty")]
     InvalidTarget,
+    /// 地图目标解析失败。
+    #[error("map error: {0}")]
+    Map(String),
+    /// 路径规划失败。
+    #[error("pathfinding error: {0}")]
+    Pathfinding(crate::PathfindingError),
     /// Repository 发生内部存储错误。
     #[error("task repository error: {0}")]
     Repository(String),

@@ -11,5 +11,6 @@
 | Gateway | [gateway](gateway.md) | HTTP/WS 到控制平面的入口 |
 | ROS task client | [ros-task-client](ros-task-client.md) | canonical task 到 ROS action 的映射 |
 | Sensor | [sensor](sensor.md) | SensorProvider 注册、查询和订阅 |
+| Map | [map](map.md) | 规定的地图格式与地图数据入口 |
 
 接口卡片不复制代码中的 struct 定义。调用者需要的精确签名、字段和实现细节应直接查看源码。

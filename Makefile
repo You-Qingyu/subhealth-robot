@@ -24,6 +24,7 @@ ROS_DOMAIN_ID ?= 1
 RMW_IMPLEMENTATION ?= rmw_cyclonedds_cpp
 TONYPI_ROOT ?= /home/pi/TonyPi
 ROS_TASK_CLIENT_CONFIG ?= ros2_ws/config/devices.yaml
+MAP_CONFIG ?= ros2_ws/config/maps/default.yaml
 
 .DEFAULT_GOAL := help
 
@@ -106,8 +107,8 @@ run:
 	    test -f "$(ROS_BUILD_ROOT)/install/setup.bash" || { echo "ROS install setup not found at $(ROS_BUILD_ROOT)/install/setup.bash; run 'make build' inside the ROS container first" >&2; exit 2; }; \
 	    source /opt/ros/$(ROS_DISTRO)/setup.bash && \
 	    source "$(ROS_BUILD_ROOT)/install/setup.bash" && \
-    GATEWAY_HTTP_PORT="$(GATEWAY_HTTP_PORT)" ROS_TASK_CLIENT_CONFIG="$(ROS_TASK_CLIENT_CONFIG)" cargo run -p gateway; \
-  else $(DEV) make run server GATEWAY_HTTP_PORT="$(GATEWAY_HTTP_PORT)" ROS_TASK_CLIENT_CONFIG="$(ROS_TASK_CLIENT_CONFIG)"; fi ;; \
+    GATEWAY_HTTP_PORT="$(GATEWAY_HTTP_PORT)" ROS_TASK_CLIENT_CONFIG="$(ROS_TASK_CLIENT_CONFIG)" MAP_CONFIG="$(MAP_CONFIG)" cargo run -p gateway; \
+  else $(DEV) make run server GATEWAY_HTTP_PORT="$(GATEWAY_HTTP_PORT)" ROS_TASK_CLIENT_CONFIG="$(ROS_TASK_CLIENT_CONFIG)" MAP_CONFIG="$(MAP_CONFIG)"; fi ;; \
 	  *" endpoint "*) \
 	    case "$(DEVICE_TYPE)" in \
       mock-exec) ros_package=mock_exec_layer; ros_executable=mock_exec_layer_node ;; \

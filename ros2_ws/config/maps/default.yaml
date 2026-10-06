@@ -1,0 +1,19 @@
+version: 1
+name: default
+nodes:
+  - id: 0
+    name: 取药处
+  - id: 1
+    name: 床位1
+  - id: 2
+    name: 床位2
+  - id: 3
+    name: 床位3
+  - id: 4
+    name: 床位4
+  - id: 5
+    name: 护士站
+edges:
+  - from: 0
+    to: 1
+    weight: 1

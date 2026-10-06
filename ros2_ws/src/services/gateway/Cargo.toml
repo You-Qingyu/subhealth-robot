@@ -10,6 +10,7 @@ platform = { path = "../platform", version = "0.1.0" }
 orchestration = { path = "../orchestration", version = "0.1.0" }
 task_repository = { path = "../task_repository", version = "0.1.0" }
 execution = { path = "../execution", version = "0.1.0" }
+map = { path = "../map", version = "0.1.0" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 futures-util = "0.3"

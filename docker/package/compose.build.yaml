@@ -6,6 +6,7 @@ services:
       target: backend
       args:
         ROS_BUILD_IMAGE: ${ROS_BUILD_IMAGE:-ros-dev:jazzy}
+        ROS_APT_MIRROR: ${ROS_APT_MIRROR:-auto}
 
   frontend:
     build:

@@ -8,6 +8,7 @@ services:
       args:
         ROS_DISTRO: ${ROS_DISTRO:-jazzy}
         UBUNTU_VERSION: ${UBUNTU_VERSION:-24.04}
+        ROS_APT_MIRROR: ${ROS_APT_MIRROR:-auto}
     image: ros-dev:${ROS_DISTRO:-jazzy}
     network_mode: host
     init: true

@@ -5,9 +5,9 @@ import random
 import time
 from typing import Callable
 
-from .hardware import HeadScanSample, NavigationHardware
+from .hardware import HeadScanSample, HeadScanStage, NavigationHardware, TurnDirection
 from .motion import MotionExecutionError, MotionInterrupted
-from .navigation_replay import NavigationReplay
+from .navigation_replay import NavigationReplay, ObservationAnnotation, ScanAnnotation
 from .tag_pose import TagPose
 
 
@@ -58,6 +58,56 @@ class NavigationResult:
     succeeded: bool
     error_code: str
     message: str
+
+
+@dataclass
+class _TargetProgress:
+    """当前目标的搜索预算、扫描方向与连续到达计数。"""
+
+    phase: str = 'OBSERVE_TARGET'
+    scan_action: str | None = None
+    body_action: str | None = None
+    scan_steps: int = 0
+    body_steps: int = 0
+    arrived_frames: int = 0
+    previous_action_frame: int | None = None
+
+    def decide(self, pose: TagPose | None) -> NavigationDecision:
+        if pose is not None:
+            self.body_steps = 0
+            self.body_action = None
+        if pose is None and self.scan_steps == SEARCH_MAX_STEPS:
+            decision = NavigationDecision('FAILED', None, 'target_not_found')
+        elif pose is None and self.phase in ('BODY_SCAN', 'TURN_TOWARD_DETECTION'):
+            if self.phase == 'BODY_SCAN' and self.body_steps == REAR_SCAN_STEPS:
+                decision = NavigationDecision('REAR_HEAD_SCAN', None, 'rear_reached')
+            else:
+                action = self.body_action if self.phase == 'BODY_SCAN' else self.scan_action
+                decision = NavigationDecision(self.phase, action, 'body_search')
+        else:
+            decision = decide(pose)
+        self.arrived_frames = (
+            self.arrived_frames + 1 if decision.phase == 'ARRIVAL_CONFIRM' else 0
+        )
+        return decision
+
+    def finish_action(self, decision: NavigationDecision, frame_id: int) -> None:
+        self.previous_action_frame = frame_id
+        if decision.reason == 'body_search':
+            self.scan_steps += 1
+            if decision.phase == 'BODY_SCAN':
+                self.body_steps += 1
+
+    def finish_scan(self, direction: TurnDirection | None) -> None:
+        if direction is not None:
+            self.scan_action = (
+                TURN_LEFT_ACTION if direction == TurnDirection.LEFT else TURN_RIGHT_ACTION
+            )
+            self.phase = 'TURN_TOWARD_DETECTION'
+        else:
+            self.phase = 'BODY_SCAN'
+            if self.body_action is None:
+                self.body_action = random.choice((TURN_LEFT_ACTION, TURN_RIGHT_ACTION))
 
 
 def decide(pose: TagPose | None) -> NavigationDecision:
@@ -134,134 +184,146 @@ class NavigationController:
         target_index: int,
         deadline_unix_ms: int,
     ) -> NavigationResult:
-        phase = 'OBSERVE_TARGET'
-        scan_action = None
-        body_action = None
-        scan_steps = 0
-        body_steps = 0
-        arrived_frames = 0
-        previous_action_frame: int | None = None
+        progress = _TargetProgress()
         while True:
             failure = self._check_stop_conditions(deadline_unix_ms)
             if failure:
-                if previous_action_frame is not None:
-                    self._replay.observation_failed(previous_action_frame, failure.error_code)
+                if progress.previous_action_frame is not None:
+                    self._replay.observation_failed(
+                        progress.previous_action_frame, failure.error_code,
+                    )
                 return failure
             try:
-                try:
-                    frame = self._hardware.observe_tags()
-                except Exception as error:
-                    if previous_action_frame is not None:
-                        self._replay.observation_failed(
-                            previous_action_frame,
-                            getattr(error, 'error_code', type(error).__name__),
-                        )
-                    raise
-                pose = frame.poses.get(tag_id)
-                if pose is not None:
-                    body_steps = 0
-                    body_action = None
-                if pose is None and scan_steps == SEARCH_MAX_STEPS:
-                    decision = NavigationDecision('FAILED', None, 'target_not_found')
-                elif pose is None and phase in ('BODY_SCAN', 'TURN_TOWARD_DETECTION'):
-                    if phase == 'BODY_SCAN' and body_steps == REAR_SCAN_STEPS:
-                        decision = NavigationDecision('REAR_HEAD_SCAN', None, 'rear_reached')
-                    else:
-                        action = body_action if phase == 'BODY_SCAN' else scan_action
-                        decision = NavigationDecision(phase, action, 'body_search')
-                else:
-                    decision = decide(pose)
-                decision_at = time.monotonic()
-                if decision.phase == 'ARRIVAL_CONFIRM':
-                    arrived_frames += 1
-                else:
-                    arrived_frames = 0
-                frame_id = self._replay.record(
-                    frame, tag_id, target_index, phase, decision.phase,
-                    decision.reason, decision.action_group, arrived_frames,
-                    previous_action_frame,
-                    decision_at,
-                    scan_steps,
+                decision, frame_id = self._observe_and_record(
+                    tag_id, target_index, progress,
                 )
-                self._log_event({
-                    'event': 'decision',
-                    'frame_id': frame_id,
-                    'read_finished_at_monotonic': frame.read_finished_at_monotonic,
-                    'read_started_at_monotonic': frame.read_started_at_monotonic,
-                    'capture_sequence': frame.capture_sequence,
-                    'skipped_frames': frame.skipped_frames,
-                    'decision_at_monotonic': decision_at,
-                    'target_id': tag_id,
-                    'phase_before': phase,
-                    'phase_after': decision.phase,
-                    'reason': decision.reason,
-                    'action_group': decision.action_group,
-                    'arrival_confirmations': arrived_frames,
-                    'previous_action_frame': previous_action_frame,
-                    'scan_steps_completed': scan_steps,
-                    'pose': _pose_summary(frame.poses.get(tag_id)),
-                })
-                previous_action_frame = None
-                phase = decision.phase
-                if decision.phase == 'FAILED':
-                    return NavigationResult(
-                        False, 'TARGET_NOT_FOUND',
-                        f'Tag {tag_id} not found after {scan_steps} turns',
-                    )
-                if decision.phase == 'ARRIVAL_CONFIRM':
-                    if arrived_frames == ARRIVAL_CONFIRMATIONS:
-                        return NavigationResult(
-                            True, '', 'Target reached with stable observations'
-                        )
-                    continue
-                if decision.phase in ('HEAD_SCAN', 'REAR_HEAD_SCAN'):
-                    scan = self._hardware.scan_head(
-                        tag_id,
-                        lambda sample: self._record_head_sample(
-                            sample, tag_id, target_index, decision.phase, scan_steps,
-                        ),
-                    )
-                    if scan.direction is not None:
-                        scan_action = (
-                            TURN_LEFT_ACTION if scan.direction == 'left' else TURN_RIGHT_ACTION
-                        )
-                        phase = 'TURN_TOWARD_DETECTION'
-                    elif decision.phase == 'REAR_HEAD_SCAN':
-                        return NavigationResult(
-                            False, 'TARGET_NOT_FOUND', f'Tag {tag_id} not found behind robot',
-                        )
-                    else:
-                        phase = 'BODY_SCAN'
-                        if body_action is None:
-                            body_action = random.choice((TURN_LEFT_ACTION, TURN_RIGHT_ACTION))
-                    continue
-                if decision.action_group is not None:
-                    self._run_step(frame_id, decision.action_group)
-                    previous_action_frame = frame_id
-                    if phase in ('BODY_SCAN', 'TURN_TOWARD_DETECTION'):
-                        scan_steps += 1
-                        if phase == 'BODY_SCAN':
-                            body_steps += 1
+                result = self._advance_target(
+                    tag_id, target_index, deadline_unix_ms,
+                    progress, decision, frame_id,
+                )
+                if result is not None:
+                    return result
             except MotionInterrupted as error:
                 return NavigationResult(False, error.error_code, str(error))
             except MotionExecutionError as error:
                 return NavigationResult(False, 'MOTION_FAILED', str(error))
 
+    def _observe_and_record(
+        self, tag_id: int, target_index: int, progress: _TargetProgress,
+    ) -> tuple[NavigationDecision, int]:
+        try:
+            frame = self._hardware.observe_tags()
+        except Exception as error:
+            if progress.previous_action_frame is not None:
+                self._replay.observation_failed(
+                    progress.previous_action_frame,
+                    getattr(error, 'error_code', type(error).__name__),
+                )
+            raise
+        decision = progress.decide(frame.poses.get(tag_id))
+        decision_at = time.monotonic()
+        annotation = ObservationAnnotation(
+            phase_before=progress.phase,
+            phase_after=decision.phase,
+            reason=decision.reason,
+            action_group=decision.action_group,
+            confirmations=progress.arrived_frames,
+            previous_action_frame=progress.previous_action_frame,
+            decision_at_monotonic=decision_at,
+            scan_steps_completed=progress.scan_steps,
+        )
+        frame_id = self._replay.record(frame, tag_id, target_index, annotation)
+        self._log_event({
+            'event': 'decision',
+            'frame_id': frame_id,
+            'read_finished_at_monotonic': frame.read_finished_at_monotonic,
+            'read_started_at_monotonic': frame.read_started_at_monotonic,
+            'capture_sequence': frame.capture_sequence,
+            'skipped_frames': frame.skipped_frames,
+            'decision_at_monotonic': decision_at,
+            'target_id': tag_id,
+            'phase_before': progress.phase,
+            'phase_after': decision.phase,
+            'reason': decision.reason,
+            'action_group': decision.action_group,
+            'arrival_confirmations': progress.arrived_frames,
+            'previous_action_frame': progress.previous_action_frame,
+            'scan_steps_completed': progress.scan_steps,
+            'pose': _pose_summary(frame.poses.get(tag_id)),
+        })
+        progress.previous_action_frame = None
+        progress.phase = decision.phase
+        return decision, frame_id
+
+    def _advance_target(
+        self, tag_id: int, target_index: int, deadline_unix_ms: int,
+        progress: _TargetProgress, decision: NavigationDecision, frame_id: int,
+    ) -> NavigationResult | None:
+        if decision.phase == 'FAILED':
+            failure = self._check_stop_conditions(deadline_unix_ms)
+            return failure or NavigationResult(
+                False, 'TARGET_NOT_FOUND',
+                f'Tag {tag_id} not found after {progress.scan_steps} turns',
+            )
+        if decision.phase == 'ARRIVAL_CONFIRM':
+            if progress.arrived_frames == ARRIVAL_CONFIRMATIONS:
+                return NavigationResult(True, '', 'Target reached with stable observations')
+            return None
+        if decision.phase in ('HEAD_SCAN', 'REAR_HEAD_SCAN'):
+            scan = self._hardware.scan_head(
+                tag_id,
+                lambda sample: self._record_head_sample(
+                    sample, tag_id, target_index, decision.phase, progress.scan_steps,
+                ),
+            )
+            if scan.direction is None and decision.phase == 'REAR_HEAD_SCAN':
+                failure = self._check_stop_conditions(deadline_unix_ms)
+                return failure or NavigationResult(
+                    False, 'TARGET_NOT_FOUND', f'Tag {tag_id} not found behind robot',
+                )
+            progress.finish_scan(scan.direction)
+            return None
+        if decision.action_group is not None:
+            self._run_step(frame_id, decision.action_group)
+            progress.finish_action(decision, frame_id)
+        return None
+
     def _record_head_sample(
         self, sample: HeadScanSample, tag_id: int, target_index: int,
         phase: str, scan_steps: int,
     ) -> None:
-        reason = 'candidate' if tag_id in sample.frame.poses else 'not_detected'
-        sample_phase = 'VERIFY_HEAD_DETECTION' if sample.stage == 'confirmation' else phase
+        detected = tag_id in sample.frame.poses
+        reason = 'candidate' if detected else 'not_detected'
+        sample_phase = (
+            'VERIFY_HEAD_DETECTION' if sample.stage == HeadScanStage.CONFIRMATION else phase
+        )
         frame_id = self._replay.record(
-            sample.frame, tag_id, target_index, phase, sample_phase, reason,
-            None, 0, None, time.monotonic(), scan_steps,
-            head_pulse=sample.pulse, head_stage=sample.stage,
+            sample.frame, tag_id, target_index,
+            ObservationAnnotation(
+                phase_before=phase,
+                phase_after=sample_phase,
+                reason=reason,
+                action_group=None,
+                confirmations=0,
+                previous_action_frame=None,
+                decision_at_monotonic=time.monotonic(),
+                scan_steps_completed=scan_steps,
+                scan=ScanAnnotation(
+                    pulse=sample.pulse,
+                    stage=sample.stage,
+                    scan_direction=sample.scan_direction,
+                    turn_direction=sample.turn_direction,
+                ),
+            ),
         )
         self._log_event({
             'event': 'head_scan', 'frame_id': frame_id, 'target_id': tag_id,
             'phase': sample_phase, 'head_pulse': sample.pulse,
-            'stage': sample.stage, 'detected': tag_id in sample.frame.poses,
+            'stage': sample.stage.value, 'detected': detected,
+            'head_scan_direction': sample.scan_direction.value,
+            'head_turn_direction': (
+                sample.turn_direction.value if sample.turn_direction is not None else None
+            ),
             'read_finished_at_monotonic': sample.frame.read_finished_at_monotonic,
         })
 

@@ -1,6 +1,6 @@
 """将导航实际使用的每一帧保存为图片和同名机器可读记录。"""
 
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 import json
 from pathlib import Path
 import uuid
@@ -9,6 +9,28 @@ import cv2
 import numpy as np
 
 from .camera import FrameObservation
+from .hardware import HeadScanStage, TurnDirection
+
+
+@dataclass(frozen=True)
+class ScanAnnotation:
+    pulse: int
+    stage: HeadScanStage
+    scan_direction: TurnDirection
+    turn_direction: TurnDirection | None
+
+
+@dataclass(frozen=True)
+class ObservationAnnotation:
+    phase_before: str
+    phase_after: str
+    reason: str
+    action_group: str | None
+    confirmations: int
+    previous_action_frame: int | None
+    decision_at_monotonic: float
+    scan_steps_completed: int
+    scan: ScanAnnotation | None = None
 
 
 class NavigationReplay:
@@ -26,16 +48,7 @@ class NavigationReplay:
         frame: FrameObservation,
         tag_id: int,
         target_index: int,
-        phase_before: str,
-        phase_after: str,
-        reason: str,
-        action_group: str | None,
-        confirmations: int,
-        previous_action_frame: int | None,
-        decision_at_monotonic: float,
-        scan_steps_completed: int | None,
-        head_pulse: int | None = None,
-        head_stage: str | None = None,
+        annotation: ObservationAnnotation,
     ) -> int:
         self._number += 1
         number = self._number
@@ -50,18 +63,25 @@ class NavigationReplay:
             'read_started_at_monotonic': frame.read_started_at_monotonic,
             'capture_sequence': frame.capture_sequence,
             'skipped_frames': frame.skipped_frames,
-            'decision_at_monotonic': decision_at_monotonic,
+            'decision_at_monotonic': annotation.decision_at_monotonic,
             'poses': {str(key): asdict(value) for key, value in frame.poses.items()},
             'target_pose': asdict(pose) if pose else None,
-            'phase_before': phase_before,
-            'phase_after': phase_after,
-            'reason': reason,
-            'action_group': action_group,
-            'arrival_confirmations': confirmations,
-            'previous_action_frame': previous_action_frame,
-            'scan_steps_completed': scan_steps_completed,
-            'head_pulse': head_pulse,
-            'head_stage': head_stage,
+            'phase_before': annotation.phase_before,
+            'phase_after': annotation.phase_after,
+            'reason': annotation.reason,
+            'action_group': annotation.action_group,
+            'arrival_confirmations': annotation.confirmations,
+            'previous_action_frame': annotation.previous_action_frame,
+            'scan_steps_completed': annotation.scan_steps_completed,
+            'head_pulse': annotation.scan.pulse if annotation.scan else None,
+            'head_stage': annotation.scan.stage.value if annotation.scan else None,
+            'head_scan_direction': (
+                annotation.scan.scan_direction.value if annotation.scan else None
+            ),
+            'head_turn_direction': (
+                annotation.scan.turn_direction.value
+                if annotation.scan and annotation.scan.turn_direction is not None else None
+            ),
             'action_started_at_monotonic': None,
             'action_finished_at_monotonic': None,
             'action_elapsed_ms': None,
@@ -77,8 +97,8 @@ class NavigationReplay:
             raise OSError(f'无法保存标注观测帧: {stem}')
         self._write_record(number, record)
         self._write_index()
-        if previous_action_frame is not None:
-            self._record_action_effect(previous_action_frame, number, frame)
+        if annotation.previous_action_frame is not None:
+            self._record_action_effect(annotation.previous_action_frame, number, frame)
         return number
 
     def action_started(self, frame_id: int, started_at_monotonic: float) -> None:
@@ -172,7 +192,7 @@ pre{background:#2b2c30;border-radius:4px;margin:0;max-height:80vh;overflow:auto;
   <a id="data" target="_blank">查看同名 JSON</a>
 </div>
 <div class="replay">
-  <img id="frame" alt="当前决策帧">
+  <img id="frame" alt="当前观测帧">
   <pre id="details">读取帧记录中……</pre>
 </div>
 <script>

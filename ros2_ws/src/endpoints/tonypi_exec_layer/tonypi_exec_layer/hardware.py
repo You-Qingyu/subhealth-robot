@@ -1,6 +1,7 @@
 """状态机使用的 TonyPi 硬件操作。"""
 
 from dataclasses import dataclass
+from enum import Enum
 import time
 from typing import Callable
 
@@ -16,12 +17,24 @@ from .motion import FiniteMotionRunner, MotionInterrupted
 class HeadScanSample:
     frame: FrameObservation
     pulse: int
-    stage: str
+    stage: 'HeadScanStage'
+    scan_direction: 'TurnDirection'
+    turn_direction: 'TurnDirection | None' = None
+
+
+class HeadScanStage(str, Enum):
+    MOVING = 'moving'
+    CONFIRMATION = 'confirmation'
+
+
+class TurnDirection(str, Enum):
+    LEFT = 'left'
+    RIGHT = 'right'
 
 
 @dataclass(frozen=True)
 class HeadScanResult:
-    direction: str | None
+    direction: TurnDirection | None
 
 
 class NavigationHardware:
@@ -72,30 +85,46 @@ class NavigationHardware:
         self._check_interruption()
         self._head.align()
         try:
+            previous_pulse = HEAD_HORIZONTAL_PULSE
             for pulse in HEAD_SCAN_PULSES:
                 self._check_interruption()
+                scan_direction = (
+                    TurnDirection.LEFT if pulse > previous_pulse else TurnDirection.RIGHT
+                )
                 self._head.turn_to(pulse)
+                previous_pulse = pulse
                 started_at = time.monotonic()
-                while time.monotonic() - started_at < HEAD_SCAN_MOVE_TIME_S:
+                while True:
                     frame = self._camera.observe_tags(started_at, self._check_interruption)
-                    on_sample(HeadScanSample(frame, pulse, 'moving'))
-                    if tag_id in frame.poses:
+                    on_sample(HeadScanSample(frame, pulse, HeadScanStage.MOVING, scan_direction))
+                    if (
+                        tag_id in frame.poses
+                        or time.monotonic() - started_at >= HEAD_SCAN_MOVE_TIME_S
+                    ):
                         break
                     self._check_interruption()
                 self._wait(HEAD_SCAN_MOVE_TIME_S + HEAD_SETTLE_TIME_S - (time.monotonic() - started_at))
                 if tag_id not in frame.poses:
                     continue
                 confirmed = self._camera.observe_tags(time.monotonic(), self._check_interruption)
-                on_sample(HeadScanSample(confirmed, pulse, 'confirmation'))
                 pose = confirmed.poses.get(tag_id)
                 if pose is not None:
                     if pulse == HEAD_HORIZONTAL_PULSE:
-                        direction = 'left' if pose.bearing_deg < 0 else 'right'
+                        direction = (
+                            TurnDirection.LEFT if pose.bearing_deg < 0 else TurnDirection.RIGHT
+                        )
                     else:
-                        direction = 'right' if pulse < HEAD_HORIZONTAL_PULSE else 'left'
+                        direction = (
+                            TurnDirection.RIGHT if pulse < HEAD_HORIZONTAL_PULSE else TurnDirection.LEFT
+                        )
+                on_sample(HeadScanSample(
+                    confirmed, pulse, HeadScanStage.CONFIRMATION, scan_direction, direction,
+                ))
+                if direction is not None:
                     break
         finally:
             self._head.align()
+        self._check_interruption()
         return HeadScanResult(direction)
 
     def _wait(self, seconds: float) -> None:

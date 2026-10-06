@@ -169,7 +169,10 @@ class NavigationController:
                 self._log_event({
                     'event': 'decision',
                     'frame_id': frame_id,
-                    'captured_at_monotonic': frame.captured_at_monotonic,
+                    'read_finished_at_monotonic': frame.read_finished_at_monotonic,
+                    'read_started_at_monotonic': frame.read_started_at_monotonic,
+                    'capture_sequence': frame.capture_sequence,
+                    'skipped_frames': frame.skipped_frames,
                     'decision_at_monotonic': decision_at,
                     'target_id': tag_id,
                     'phase_before': phase,

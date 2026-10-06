@@ -32,7 +32,7 @@ class NavigationHardware:
         self._check_interruption()
         self._head.align()
         self._check_interruption()
-        return self._camera.observe_tags()
+        return self._camera.observe_tags(time.monotonic(), self._check_interruption)
 
     def execute_action(self, action_group: str) -> None:
         """在云台正前方执行一个经允许的有限动作组。"""

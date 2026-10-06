@@ -43,7 +43,10 @@ class NavigationReplay:
             'frame_id': number,
             'target_id': tag_id,
             'target_index': target_index,
-            'captured_at_monotonic': frame.captured_at_monotonic,
+            'read_finished_at_monotonic': frame.read_finished_at_monotonic,
+            'read_started_at_monotonic': frame.read_started_at_monotonic,
+            'capture_sequence': frame.capture_sequence,
+            'skipped_frames': frame.skipped_frames,
             'decision_at_monotonic': decision_at_monotonic,
             'poses': {str(key): asdict(value) for key, value in frame.poses.items()},
             'target_pose': asdict(pose) if pose else None,
@@ -110,7 +113,7 @@ class NavigationReplay:
         after_pose = frame.poses.get(record['target_id'])
         after = asdict(after_pose) if after_pose else None
         finished_at = record['action_finished_at_monotonic']
-        observation_at = frame.captured_at_monotonic
+        observation_at = frame.read_finished_at_monotonic
         record['action_effect'] = {
             'next_observation_frame_id': observation_frame_id,
             'next_observation_at_monotonic': observation_at,

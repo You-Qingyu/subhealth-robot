@@ -9,6 +9,10 @@ use axum::{
     Json,
 };
 
+pub async fn list_tags(State(state): State<AppState>) -> Json<Vec<map::MapNode>> {
+    Json(state.tags().await)
+}
+
 pub async fn list_tasks(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<platform::TaskRecord>>, StatusCode> {

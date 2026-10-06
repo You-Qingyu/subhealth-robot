@@ -42,6 +42,11 @@ impl AppState {
         }
     }
 
+    /// 返回当前地图中的 Tag 标识和名称，不暴露路径边与权重。
+    pub async fn tags(&self) -> Vec<map::MapNode> {
+        self.inner.orchestrator.lock().await.tags().to_vec()
+    }
+
     /// 提交任务，并在接受后异步消费执行会话。
     pub async fn create_task(&self, input: CreateTask) -> Result<TaskRecord, OrchestrationError> {
         let (record, session) = self

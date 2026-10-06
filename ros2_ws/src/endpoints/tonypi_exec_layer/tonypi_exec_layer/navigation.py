@@ -1,10 +1,11 @@
 """基于 AprilTag 位姿的 TonyPi 离散动作状态机。"""
 
 from dataclasses import dataclass
+import random
 import time
 from typing import Callable
 
-from .hardware import NavigationHardware
+from .hardware import HeadScanSample, NavigationHardware
 from .motion import MotionExecutionError, MotionInterrupted
 from .navigation_replay import NavigationReplay
 from .tag_pose import TagPose
@@ -14,10 +15,11 @@ TARGET_DISTANCE_M = 0.50
 DISTANCE_TOLERANCE_M = 0.08
 BEARING_TOLERANCE_DEG = 5.0
 FACING_TOLERANCE_DEG = 15.0
-SEARCH_HALF_ANGLE_DEG = 45.0
 APPROACH_HALF_ANGLE_DEG = 30.0
 LATERAL_DIRECTION_EPSILON_DEG = 2.0
 ARRIVAL_CONFIRMATIONS = 3
+SEARCH_MAX_STEPS = 32
+REAR_SCAN_STEPS = 16
 DEFAULT_TASK_TIMEOUT_S = 120.0
 
 TURN_LEFT_ACTION = 'turn_left_small_step'
@@ -58,47 +60,31 @@ class NavigationResult:
     message: str
 
 
-def decide(pose: TagPose | None, phase: str) -> NavigationDecision:
-    """仅根据当前正前方位姿与状态决定下一步。"""
+def decide(pose: TagPose | None) -> NavigationDecision:
+    """正前方观测分发可见目标；不可见交给云台搜索。"""
     if pose is None:
-        return NavigationDecision('search_align', None, 'target_not_detected')
-    if abs(pose.bearing_deg) > SEARCH_HALF_ANGLE_DEG:
-        return NavigationDecision('search_align', _turn_toward_tag(pose), 'outside_search_range')
+        return NavigationDecision('HEAD_SCAN', None, 'target_not_detected')
     if abs(pose.bearing_deg) > APPROACH_HALF_ANGLE_DEG:
-        return NavigationDecision('search_align', _turn_toward_tag(pose), 'outside_approach_range')
-    if phase == 'search_align':
-        next_phase = (
-            'approach' if pose.distance_m > TARGET_DISTANCE_M + DISTANCE_TOLERANCE_M
-            else 'terminal_align'
-        )
-        return NavigationDecision(next_phase, None, 'target_acquired')
-    if phase == 'approach':
-        return _approach_decision(pose)
+        return NavigationDecision('ALIGN_VISIBLE_TARGET', _turn_toward_tag(pose), 'outside_approach_range')
+    if pose.distance_m > TARGET_DISTANCE_M + DISTANCE_TOLERANCE_M:
+        return NavigationDecision('APPROACH', FORWARD_ACTION, 'distance_too_far')
     return _terminal_decision(pose)
 
 
-def _approach_decision(pose: TagPose) -> NavigationDecision:
-    if pose.distance_m <= TARGET_DISTANCE_M + DISTANCE_TOLERANCE_M:
-        return NavigationDecision('terminal_align', None, 'distance_in_terminal_range')
-    return NavigationDecision('approach', FORWARD_ACTION, 'distance_too_far')
-
-
 def _terminal_decision(pose: TagPose) -> NavigationDecision:
-    if pose.distance_m > TARGET_DISTANCE_M + DISTANCE_TOLERANCE_M:
-        return NavigationDecision('approach', None, 'distance_too_far')
     if pose.distance_m < TARGET_DISTANCE_M - DISTANCE_TOLERANCE_M:
-        return NavigationDecision('terminal_align', BACKWARD_ACTION, 'distance_too_close')
+        return NavigationDecision('FINAL_ALIGN', BACKWARD_ACTION, 'distance_too_close')
     if abs(pose.bearing_deg) > BEARING_TOLERANCE_DEG:
         return NavigationDecision(
-            'terminal_align', _terminal_turn_toward_tag(pose), 'bearing_not_centered'
+            'FINAL_ALIGN', _terminal_turn_toward_tag(pose), 'bearing_not_centered'
         )
     if pose.facing_error_deg <= FACING_TOLERANCE_DEG:
-        return NavigationDecision('arrived', None, 'within_arrival_tolerances')
+        return NavigationDecision('ARRIVAL_CONFIRM', None, 'within_arrival_tolerances')
     lateral_error = pose.normal_bearing_deg - pose.bearing_deg
     if abs(lateral_error) <= LATERAL_DIRECTION_EPSILON_DEG:
-        return NavigationDecision('terminal_align', None, 'lateral_direction_uncertain')
+        return NavigationDecision('FINAL_ALIGN', None, 'lateral_direction_uncertain')
     action = LEFT_MOVE_ACTION if lateral_error > 0 else RIGHT_MOVE_ACTION
-    return NavigationDecision('terminal_align', action, 'facing_not_aligned')
+    return NavigationDecision('FINAL_ALIGN', action, 'facing_not_aligned')
 
 
 def _turn_toward_tag(pose: TagPose) -> str:
@@ -113,7 +99,7 @@ def _terminal_turn_toward_tag(pose: TagPose) -> str:
 
 
 class NavigationController:
-    """只通过两个硬件入口逐帧推进目标状态。"""
+    """逐帧分发正前方导航与有界目标搜索。"""
 
     def __init__(
         self,
@@ -148,7 +134,11 @@ class NavigationController:
         target_index: int,
         deadline_unix_ms: int,
     ) -> NavigationResult:
-        phase = 'search_align'
+        phase = 'OBSERVE_TARGET'
+        scan_action = None
+        body_action = None
+        scan_steps = 0
+        body_steps = 0
         arrived_frames = 0
         previous_action_frame: int | None = None
         while True:
@@ -167,9 +157,22 @@ class NavigationController:
                             getattr(error, 'error_code', type(error).__name__),
                         )
                     raise
-                decision = decide(frame.poses.get(tag_id), phase)
+                pose = frame.poses.get(tag_id)
+                if pose is not None:
+                    body_steps = 0
+                    body_action = None
+                if pose is None and scan_steps == SEARCH_MAX_STEPS:
+                    decision = NavigationDecision('FAILED', None, 'target_not_found')
+                elif pose is None and phase in ('BODY_SCAN', 'TURN_TOWARD_DETECTION'):
+                    if phase == 'BODY_SCAN' and body_steps == REAR_SCAN_STEPS:
+                        decision = NavigationDecision('REAR_HEAD_SCAN', None, 'rear_reached')
+                    else:
+                        action = body_action if phase == 'BODY_SCAN' else scan_action
+                        decision = NavigationDecision(phase, action, 'body_search')
+                else:
+                    decision = decide(pose)
                 decision_at = time.monotonic()
-                if decision.phase == 'arrived':
+                if decision.phase == 'ARRIVAL_CONFIRM':
                     arrived_frames += 1
                 else:
                     arrived_frames = 0
@@ -178,6 +181,7 @@ class NavigationController:
                     decision.reason, decision.action_group, arrived_frames,
                     previous_action_frame,
                     decision_at,
+                    scan_steps,
                 )
                 self._log_event({
                     'event': 'decision',
@@ -194,23 +198,72 @@ class NavigationController:
                     'action_group': decision.action_group,
                     'arrival_confirmations': arrived_frames,
                     'previous_action_frame': previous_action_frame,
+                    'scan_steps_completed': scan_steps,
                     'pose': _pose_summary(frame.poses.get(tag_id)),
                 })
                 previous_action_frame = None
                 phase = decision.phase
-                if decision.phase == 'arrived':
+                if decision.phase == 'FAILED':
+                    return NavigationResult(
+                        False, 'TARGET_NOT_FOUND',
+                        f'Tag {tag_id} not found after {scan_steps} turns',
+                    )
+                if decision.phase == 'ARRIVAL_CONFIRM':
                     if arrived_frames == ARRIVAL_CONFIRMATIONS:
                         return NavigationResult(
                             True, '', 'Target reached with stable observations'
                         )
                     continue
+                if decision.phase in ('HEAD_SCAN', 'REAR_HEAD_SCAN'):
+                    scan = self._hardware.scan_head(
+                        tag_id,
+                        lambda sample: self._record_head_sample(
+                            sample, tag_id, target_index, decision.phase, scan_steps,
+                        ),
+                    )
+                    if scan.direction is not None:
+                        scan_action = (
+                            TURN_LEFT_ACTION if scan.direction == 'left' else TURN_RIGHT_ACTION
+                        )
+                        phase = 'TURN_TOWARD_DETECTION'
+                    elif decision.phase == 'REAR_HEAD_SCAN':
+                        return NavigationResult(
+                            False, 'TARGET_NOT_FOUND', f'Tag {tag_id} not found behind robot',
+                        )
+                    else:
+                        phase = 'BODY_SCAN'
+                        if body_action is None:
+                            body_action = random.choice((TURN_LEFT_ACTION, TURN_RIGHT_ACTION))
+                    continue
                 if decision.action_group is not None:
                     self._run_step(frame_id, decision.action_group)
                     previous_action_frame = frame_id
+                    if phase in ('BODY_SCAN', 'TURN_TOWARD_DETECTION'):
+                        scan_steps += 1
+                        if phase == 'BODY_SCAN':
+                            body_steps += 1
             except MotionInterrupted as error:
                 return NavigationResult(False, error.error_code, str(error))
             except MotionExecutionError as error:
                 return NavigationResult(False, 'MOTION_FAILED', str(error))
+
+    def _record_head_sample(
+        self, sample: HeadScanSample, tag_id: int, target_index: int,
+        phase: str, scan_steps: int,
+    ) -> None:
+        reason = 'candidate' if tag_id in sample.frame.poses else 'not_detected'
+        sample_phase = 'VERIFY_HEAD_DETECTION' if sample.stage == 'confirmation' else phase
+        frame_id = self._replay.record(
+            sample.frame, tag_id, target_index, phase, sample_phase, reason,
+            None, 0, None, time.monotonic(), scan_steps,
+            head_pulse=sample.pulse, head_stage=sample.stage,
+        )
+        self._log_event({
+            'event': 'head_scan', 'frame_id': frame_id, 'target_id': tag_id,
+            'phase': sample_phase, 'head_pulse': sample.pulse,
+            'stage': sample.stage, 'detected': tag_id in sample.frame.poses,
+            'read_finished_at_monotonic': sample.frame.read_finished_at_monotonic,
+        })
 
     def _run_step(self, frame_id: int, action_group: str) -> None:
         started_at = time.monotonic()

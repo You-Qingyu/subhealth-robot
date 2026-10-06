@@ -35,7 +35,8 @@ make run endpoint DEVICE_TYPE=tonypi
 
 endpoint 只接受 `go_to_tag`，`target_tags` 是按顺序到达的 AprilTag ID，不把
 Tag ID 映射为固定动作。导航按当前观测执行有限动作，并在动作结束后重新观测；
-目标不可见时保持机身静止。完整的状态、阈值、调用顺序和异常语义见
+目标不可见时先保持机身静止转头寻找；云台扫完仍未发现时才逐步原地转体，
+每步之后重新观测。完整的状态、阈值、调用顺序和异常语义见
 [TonyPi `go_to_tag` 状态机说明](../../specs/tonypi-go-to-tag-state-machine.md)。
 
 每次用于决策的 `observe_tags()` 都在真机上保存逐帧回放。日志中的

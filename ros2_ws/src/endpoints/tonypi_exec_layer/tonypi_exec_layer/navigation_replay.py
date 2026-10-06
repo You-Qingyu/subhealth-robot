@@ -33,6 +33,9 @@ class NavigationReplay:
         confirmations: int,
         previous_action_frame: int | None,
         decision_at_monotonic: float,
+        scan_steps_completed: int | None,
+        head_pulse: int | None = None,
+        head_stage: str | None = None,
     ) -> int:
         self._number += 1
         number = self._number
@@ -56,6 +59,9 @@ class NavigationReplay:
             'action_group': action_group,
             'arrival_confirmations': confirmations,
             'previous_action_frame': previous_action_frame,
+            'scan_steps_completed': scan_steps_completed,
+            'head_pulse': head_pulse,
+            'head_stage': head_stage,
             'action_started_at_monotonic': None,
             'action_finished_at_monotonic': None,
             'action_elapsed_ms': None,

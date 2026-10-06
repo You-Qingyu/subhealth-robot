@@ -23,16 +23,17 @@
 
 ```python
 def observe_tags() -> FrameObservation: ...
-def scan_head(tag_id: int) -> HeadScanResult: ...
+def scan_head(tag_id: int, on_sample: Callable[[HeadScanSample], None]) -> HeadScanResult: ...
 def execute_action(action_group: str) -> None: ...
 ```
 
 `observe_tags()` 回正云台并等待稳定，只返回正前方新帧的全部 Tag 位姿和读帧时间。
 `execute_action()` 在云台正前方执行一个允许的动作组，处理取消、deadline 和安全
-停止。`scan_head(tag_id)` 保持机身静止，在水平方向由中位 `1500` 分别扫向
+停止。`scan_head(...)` 保持机身静止，在水平方向由中位 `1500` 分别扫向
 `1200`、`1800`；这两个扫描端点来自 TonyPi 官方 `Head_Control.py` 的舵机 2
 摆头范围，不使用整个 `500–2500` 命令范围。扫描期间持续读取并检测最新视频帧；
-检测到目标只是候选，须在附近停住云台、等待稳定、再用新帧确认。确认成功才返回
+每段移动 50 PWM，读取运动期间的新帧；检测到目标只是候选，须在该段终点停住
+云台、等待稳定、再用新帧确认。确认失败继续扫描剩余位置；确认成功才返回
 相对机身的左/右方向；扫描结束仍未确认则返回“未发现”。函数返回前必须回正云台。
 官方 `ColorTrack.py` 中目标在画面右边时减小舵机 2 脉宽，因此以小于 `1500` 为
 右侧、大于 `1500` 为左侧；若现场舵机方向与此不符，必须停止搜索而非反向盲转。
@@ -41,7 +42,8 @@ def execute_action(action_group: str) -> None: ...
 停头确认帧只用于选择转体方向；只有机身转动后回正云台并再次 `observe_tags()`
 看到目标，才能进入正常导航。扫描期间也要检查取消和整条路线的 deadline；相机
 失效或云台控制失败是错误，不允许返回“未发现”掩盖故障。扫描所见目标、停头确认
-结果及正前方决策帧须能在回放和日志中按目标 ID 与时间顺序对应。
+结果及正前方决策帧须能在回放和日志中按目标 ID 与时间顺序对应；每帧通过
+`on_sample` 即时记录，即使扫描中途故障，已取得的帧也不能丢失。
 
 ## 状态及转换
 
@@ -52,10 +54,11 @@ deadline 和硬件错误；成功到达目标后才切换到下一个 ID。不�
 | 状态 | 转换条件 |
 |---|---|
 | `OBSERVE_TARGET` 正前方观测 | 目标不可见 → `HEAD_SCAN`；可见且 bearing 绝对值大于 30° → `ALIGN_VISIBLE_TARGET`；可见、在接近范围内且距离大于 0.58 m → `APPROACH`；其余 → `FINAL_ALIGN`。本状态不执行机身动作。 |
-| `HEAD_SCAN` 转头寻找 | 执行一次有界云台扫描并停头确认；确认目标 → `TURN_TOWARD_DETECTION`；未确认 → `BODY_SCAN`。初始目标和路线中后续目标使用同一规则。 |
+| `HEAD_SCAN` 转头寻找 | 执行一次有界云台扫描；运动帧检测到目标候选 → `VERIFY_HEAD_DETECTION`；未发现 → `BODY_SCAN`。初始目标和路线中后续目标使用同一规则。 |
+| `VERIFY_HEAD_DETECTION` 停头核验 | 云台在当前小段终点停稳，用新帧确认；确认目标 → `TURN_TOWARD_DETECTION`；未确认 → 回到进入此状态前的 `HEAD_SCAN` 或 `REAR_HEAD_SCAN`，继续剩余扫描。本状态在一次 `scan_head(...)` 调用内部完成，不执行机身动作。 |
 | `TURN_TOWARD_DETECTION` 朝发现方向转身 | 云台回正，沿确认的方向每次执行一个标准有限转体并重观测；正前方看到目标 → `OBSERVE_TARGET`；未看到且不可见转体尚未满 32 步 → 保持同向继续；第 32 步后仍未看到 → `FAILED(TARGET_NOT_FOUND)`。 |
 | `BODY_SCAN` 原地搜索 | 扫头没有确认目标时选定一个方向，每转一步都用正前方新帧检查；看到目标 → `OBSERVE_TARGET`；约 16 步到背后仍未看到 → `REAR_HEAD_SCAN`。计入同一目标的 32 步总预算，不足 16 步时受剩余预算限制。 |
-| `REAR_HEAD_SCAN` 背后转头寻找 | 执行一次有界云台扫描；确认目标 → `TURN_TOWARD_DETECTION`，继续使用剩余转体预算；未确认 → `FAILED(TARGET_NOT_FOUND)`。 |
+| `REAR_HEAD_SCAN` 背后转头寻找 | 执行一次有界云台扫描；运动帧检测到候选 → `VERIFY_HEAD_DETECTION`；扫完仍未确认 → `FAILED(TARGET_NOT_FOUND)`；确认目标后继续使用剩余转体预算。 |
 | `ALIGN_VISIBLE_TARGET` 对准可见目标 | 仅在正前方看见目标时，根据 bearing 符号执行一个标准有限转体，然后回 `OBSERVE_TARGET`；不可见时不沿用旧 bearing，转 `OBSERVE_TARGET`。 |
 | `APPROACH` 接近 | 目标在正前方可见、bearing 绝对值不大于 30°且距离大于 0.58 m → 前进一步；然后回 `OBSERVE_TARGET`。其他条件直接回该分发状态。 |
 | `FINAL_ALIGN` 终端校正 | 目标不可见或超出接近范围 → `OBSERVE_TARGET`；距离大于 0.58 m → `APPROACH`；距离小于 0.42 m → 后退一步；bearing 绝对值大于 5° → 使用较小的 `_a` 转体动作；否则 facing error 大于 15°且法线水平角与 bearing 的差值绝对值大于 2° → 沿有符号方向横移一步。每个动作后回 `OBSERVE_TARGET`；横移方向不确定时保持静止并重观测；全部合格 → `ARRIVAL_CONFIRM`。 |
@@ -63,7 +66,9 @@ deadline 和硬件错误；成功到达目标后才切换到下一个 ID。不�
 | `ADVANCE_TARGET` 路线推进 | 发布当前目标到达进度；还有目标 → 更新目标 ID、清零不可见转体预算，进入 `OBSERVE_TARGET`；否则 → `COMPLETE`。 |
 | `COMPLETE` / `FAILED` | 终态，不再执行动作。 |
 
-`BODY_SCAN` 的方向只选择一次，途中不重新随机；`TURN_TOWARD_DETECTION` 的方向
+`BODY_SCAN` 每次连续搜索的方向只选择一次，途中不重新随机；正前方重新看到目标后
+结束该次连续搜索，若以后再次丢失，重新从头部扫描开始，但累计的 32 步预算不清零。
+`TURN_TOWARD_DETECTION` 的方向
 来自停头确认而非随机。两者每一步都重新观测，一旦看到当前目标立刻停止盲转。
 若目标在正常导航途中丢失，也返回 `OBSERVE_TARGET` 并先扫头；该目标已经消耗的
 不可见转体预算仍有效，不能因重进搜索而再获得一整圈。标准小步仅用于搜索和

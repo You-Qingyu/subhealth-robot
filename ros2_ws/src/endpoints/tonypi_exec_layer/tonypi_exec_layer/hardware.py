@@ -7,7 +7,7 @@ from typing import Callable
 
 from .camera import FrameObservation, TagCamera
 from .head import (
-    HEAD_HORIZONTAL_PULSE, HEAD_SCAN_MOVE_TIME_S, HEAD_SCAN_PULSES,
+    HEAD_SCAN_LEFT_PULSES, HEAD_SCAN_MOVE_TIME_S, HEAD_SCAN_RIGHT_PULSES,
     HEAD_SETTLE_TIME_S, HeadAligner,
 )
 from .motion import FiniteMotionRunner, MotionInterrupted
@@ -85,47 +85,46 @@ class NavigationHardware:
         self._check_interruption()
         self._head.align()
         try:
-            previous_pulse = HEAD_HORIZONTAL_PULSE
-            for pulse in HEAD_SCAN_PULSES:
+            direction = self._scan_side(
+                tag_id, TurnDirection.RIGHT, HEAD_SCAN_RIGHT_PULSES, on_sample,
+            )
+            if direction is None:
                 self._check_interruption()
-                scan_direction = (
-                    TurnDirection.LEFT if pulse > previous_pulse else TurnDirection.RIGHT
+                self._head.align()
+                self._check_interruption()
+                direction = self._scan_side(
+                    tag_id, TurnDirection.LEFT, HEAD_SCAN_LEFT_PULSES, on_sample,
                 )
-                self._head.turn_to(pulse)
-                previous_pulse = pulse
-                started_at = time.monotonic()
-                while True:
-                    frame = self._camera.observe_tags(started_at, self._check_interruption)
-                    on_sample(HeadScanSample(frame, pulse, HeadScanStage.MOVING, scan_direction))
-                    if (
-                        tag_id in frame.poses
-                        or time.monotonic() - started_at >= HEAD_SCAN_MOVE_TIME_S
-                    ):
-                        break
-                    self._check_interruption()
-                self._wait(HEAD_SCAN_MOVE_TIME_S + HEAD_SETTLE_TIME_S - (time.monotonic() - started_at))
-                if tag_id not in frame.poses:
-                    continue
-                confirmed = self._camera.observe_tags(time.monotonic(), self._check_interruption)
-                pose = confirmed.poses.get(tag_id)
-                if pose is not None:
-                    if pulse == HEAD_HORIZONTAL_PULSE:
-                        direction = (
-                            TurnDirection.LEFT if pose.bearing_deg < 0 else TurnDirection.RIGHT
-                        )
-                    else:
-                        direction = (
-                            TurnDirection.RIGHT if pulse < HEAD_HORIZONTAL_PULSE else TurnDirection.LEFT
-                        )
-                on_sample(HeadScanSample(
-                    confirmed, pulse, HeadScanStage.CONFIRMATION, scan_direction, direction,
-                ))
-                if direction is not None:
-                    break
         finally:
             self._head.align()
         self._check_interruption()
         return HeadScanResult(direction)
+
+    def _scan_side(
+        self, tag_id: int, side: TurnDirection, pulses: tuple[int, ...],
+        on_sample: Callable[[HeadScanSample], None],
+    ) -> TurnDirection | None:
+        for pulse in pulses:
+            self._check_interruption()
+            self._head.turn_to(pulse)
+            started_at = time.monotonic()
+            while True:
+                frame = self._camera.observe_tags(started_at, self._check_interruption)
+                on_sample(HeadScanSample(frame, pulse, HeadScanStage.MOVING, side))
+                if tag_id in frame.poses or time.monotonic() - started_at >= HEAD_SCAN_MOVE_TIME_S:
+                    break
+                self._check_interruption()
+            self._wait(HEAD_SCAN_MOVE_TIME_S + HEAD_SETTLE_TIME_S - (time.monotonic() - started_at))
+            if tag_id not in frame.poses:
+                continue
+            confirmed = self._camera.observe_tags(time.monotonic(), self._check_interruption)
+            direction = side if tag_id in confirmed.poses else None
+            on_sample(HeadScanSample(
+                confirmed, pulse, HeadScanStage.CONFIRMATION, side, direction,
+            ))
+            if direction is not None:
+                return direction
+        return None
 
     def _wait(self, seconds: float) -> None:
         until = time.monotonic() + max(0, seconds)

@@ -11,8 +11,8 @@ HEAD_MOVE_TIME_S = 0.5
 HEAD_SETTLE_TIME_S = 0.2
 HEAD_SCAN_MOVE_TIME_S = 0.25
 HEAD_SCAN_PULSES = (
-    *range(1450, 499, -50),
-    *range(550, 2501, 50),
+    *range(1400, 499, -100),
+    *range(600, 2501, 100),
 )
 
 

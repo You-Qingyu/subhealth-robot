@@ -9,6 +9,10 @@ const apiProxy = {
     // WebSocket 代理：/api/v1/events 需要 ws:true 才能升级握手。
     ws: true,
   },
+  '/agent': {
+    target: 'http://127.0.0.1:5010',
+    changeOrigin: true,
+  },
 }
 
 export default defineConfig({

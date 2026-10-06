@@ -45,6 +45,7 @@ help:
 	@echo "  make webui-dev       Run the WebUI dev server"
 	@echo "  make run server      Run the control-plane server"
 	@echo "  make run endpoint DEVICE_TYPE=<device-type>"
+	@echo "  make run agent       Run the Agent HTTP/SSE service"
 	@echo "  make clean           Remove build artifacts"
 	@echo
 	@echo "  endpoint requires DEVICE_TYPE; server and endpoint are mutually exclusive"
@@ -121,10 +122,13 @@ run:
 	    source /opt/ros/$(ROS_DISTRO)/setup.bash && \
 	    source "$(ROS_BUILD_ROOT)/install/setup.bash" && \
     ROS_DOMAIN_ID="$(ROS_DOMAIN_ID)" RMW_IMPLEMENTATION="$(RMW_IMPLEMENTATION)" TONYPI_ROOT="$(TONYPI_ROOT)" ros2 run "$$ros_package" "$$ros_executable" $(if $(strip $(ENDPOINT_ARGS)),--ros-args $(ENDPOINT_ARGS),) ;; \
-	  *) echo "usage: make run server | make run endpoint DEVICE_TYPE=<device-type>" >&2; exit 2 ;; \
+	  *" agent "*) if [ "$(IN_CONTAINER)" = "1" ]; then \
+	    agent/.venv/bin/python agent/server.py; \
+	  else $(DEV) make run agent; fi ;; \
+	  *) echo "usage: make run server | make run endpoint DEVICE_TYPE=<device-type> | make run agent" >&2; exit 2 ;; \
 	esac
 
-server endpoint:
+server endpoint agent:
 	@:
 
 ## clean: remove build artifacts

@@ -64,7 +64,7 @@ deadline 和硬件错误；成功到达目标后才切换到下一个 ID。不�
 | `BODY_SCAN` 原地搜索 | 扫头没有确认目标时选定一个方向，每次执行一次 `turn_left` 或 `turn_right` 并用正前方新帧检查；看到目标 → `OBSERVE_TARGET`；16 次后仍未看到 → `REAR_HEAD_SCAN`。计入同一目标的 32 次总预算，不足 16 次时受剩余预算限制。 |
 | `REAR_HEAD_SCAN` 背后转头寻找 | 执行一次有界云台扫描；运动帧检测到候选 → `VERIFY_HEAD_DETECTION`；扫完仍未确认 → `FAILED(TARGET_NOT_FOUND)`；确认目标后继续使用剩余转体预算。 |
 | `ALIGN_VISIBLE_TARGET` 对准可见目标 | 仅在正前方看见目标时，根据 bearing 符号执行一个标准有限转体，然后回 `OBSERVE_TARGET`；不可见时不沿用旧 bearing，转 `OBSERVE_TARGET`。 |
-| `APPROACH` 接近 | 目标在正前方可见、bearing 绝对值不大于 30°且距离大于 0.58 m → 前进一步；然后回 `OBSERVE_TARGET`。其他条件直接回该分发状态。 |
+| `APPROACH` 接近 | 目标在正前方可见、bearing 绝对值不大于 30°且距离大于 0.58 m → 用下一侧脚的镜像动作组前进一步；然后回 `OBSERVE_TARGET`。其他条件直接回该分发状态。 |
 | `FINAL_ALIGN` 终端校正 | 目标不可见或超出接近范围 → `OBSERVE_TARGET`；距离大于 0.58 m → `APPROACH`；距离小于 0.42 m → 后退一步；bearing 绝对值大于 5° → 使用较小的 `_a` 转体动作；否则 facing error 大于 15°且法线水平角与 bearing 的差值绝对值大于 2° → 沿有符号方向横移一步。每个动作后回 `OBSERVE_TARGET`；横移方向不确定时保持静止并重观测；全部合格 → `ARRIVAL_CONFIRM`。 |
 | `ARRIVAL_CONFIRM` 连续确认 | 每次调用正前方观测取得新帧，三个终端条件连续满足三次 → `ADVANCE_TARGET`；任一帧不满足 → 计数清零，回 `OBSERVE_TARGET`。 |
 | `ADVANCE_TARGET` 路线推进 | 发布当前目标到达进度；还有目标 → 更新目标 ID、清零不可见转体预算，进入 `OBSERVE_TARGET`；否则 → `COMPLETE`。 |
@@ -79,6 +79,12 @@ deadline 和硬件错误；成功到达目标后才切换到下一个 ID。不�
 `turn_right` 仅用于不可见目标的原地搜索；可见目标的粗对准仍使用 `*_small_step`，
 终端居中继续使用更小的 `*_small_step_a`。接近阶段不按预先
 标定的动作位移决定前进次数。
+
+前进只使用 `go_forward_one_step_left` 和 `go_forward_one_step_right`，不再使用
+原始 `go_forward_one_step`。每个任务从左脚动作开始，两种动作组按完成次数交替；
+切换 Tag、转向、后退或横移均不重置轮换，也不消耗下一侧脚的顺序。只有当前
+前进动作组成功返回才切换下一次使用的动作组；动作中断或失败时立即终止任务。
+SDK 正常返回仍不代表真实位移已得到确认，之后必须按新观测决定是否继续前进。
 
 ## 终止、回放与硬件边界
 

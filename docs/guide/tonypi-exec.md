@@ -39,6 +39,11 @@ Tag ID 映射为固定动作。导航按当前观测执行有限动作，并在�
 每步之后重新观测。完整的状态、阈值、调用顺序和异常语义见
 [TonyPi `go_to_tag` 状态机说明](../../specs/tonypi-go-to-tag-state-machine.md)。
 
+前进动作轮流使用 `go_forward_one_step_left.d6a` 和
+`go_forward_one_step_right.d6a`。启动 endpoint 前，必须将这两个文件放入
+`TONYPI_ROOT/ActionGroups/`；启动时缺少任一必需动作组会报错，不会回退到
+原始 `go_forward_one_step.d6a`。
+
 每次用于决策的 `observe_tags()` 都在真机上保存逐帧回放。日志中的
 `tonypi_replay directory=...` 给出本次任务的目录，默认为
 `/tmp/tonypi-replays/<随机任务目录>`，可通过 ROS 参数 `replay_directory` 修改。

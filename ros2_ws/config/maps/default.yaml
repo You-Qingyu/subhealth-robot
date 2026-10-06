@@ -2,33 +2,18 @@ version: 1
 name: default
 nodes:
   - id: 0
-    name: tag_0
+    name: 取药处
   - id: 1
-    name: entrance
+    name: 床位1
   - id: 2
-    name: corridor
+    name: 床位2
   - id: 3
-    name: workstation
+    name: 床位3
   - id: 4
-    name: rest_area
+    name: 床位4
   - id: 5
-    name: charging_station
+    name: 护士站
 edges:
-  - from: 1
-    to: 2
-    weight: 10
-  - from: 2
-    to: 3
-    weight: 8
-  - from: 2
-    to: 4
-    weight: 12
-  - from: 4
-    to: 5
-    weight: 5
-  - from: 5
-    to: 3
-    weight: 9
-  - from: 1
-    to: 5
-    weight: 20
+  - from: 0
+    to: 1
+    weight: 1

@@ -22,6 +22,8 @@ DEFAULT_TASK_TIMEOUT_S = 120.0
 
 TURN_LEFT_ACTION = 'turn_left_small_step'
 TURN_RIGHT_ACTION = 'turn_right_small_step'
+TERMINAL_TURN_LEFT_ACTION = 'turn_left_small_step_a'
+TERMINAL_TURN_RIGHT_ACTION = 'turn_right_small_step_a'
 LEFT_MOVE_ACTION = 'left_move'
 RIGHT_MOVE_ACTION = 'right_move'
 FORWARD_ACTION = 'go_forward_one_step'
@@ -29,6 +31,8 @@ BACKWARD_ACTION = 'back_one_step'
 REQUIRED_ACTION_GROUPS = (
     TURN_LEFT_ACTION,
     TURN_RIGHT_ACTION,
+    TERMINAL_TURN_LEFT_ACTION,
+    TERMINAL_TURN_RIGHT_ACTION,
     LEFT_MOVE_ACTION,
     RIGHT_MOVE_ACTION,
     FORWARD_ACTION,
@@ -85,7 +89,9 @@ def _terminal_decision(pose: TagPose) -> NavigationDecision:
     if pose.distance_m < TARGET_DISTANCE_M - DISTANCE_TOLERANCE_M:
         return NavigationDecision('terminal_align', BACKWARD_ACTION, 'distance_too_close')
     if abs(pose.bearing_deg) > BEARING_TOLERANCE_DEG:
-        return NavigationDecision('terminal_align', _turn_toward_tag(pose), 'bearing_not_centered')
+        return NavigationDecision(
+            'terminal_align', _terminal_turn_toward_tag(pose), 'bearing_not_centered'
+        )
     if pose.facing_error_deg <= FACING_TOLERANCE_DEG:
         return NavigationDecision('arrived', None, 'within_arrival_tolerances')
     lateral_error = pose.normal_bearing_deg - pose.bearing_deg
@@ -97,6 +103,13 @@ def _terminal_decision(pose: TagPose) -> NavigationDecision:
 
 def _turn_toward_tag(pose: TagPose) -> str:
     return TURN_LEFT_ACTION if pose.bearing_deg < 0 else TURN_RIGHT_ACTION
+
+
+def _terminal_turn_toward_tag(pose: TagPose) -> str:
+    return (
+        TERMINAL_TURN_LEFT_ACTION
+        if pose.bearing_deg < 0 else TERMINAL_TURN_RIGHT_ACTION
+    )
 
 
 class NavigationController:

@@ -63,6 +63,11 @@ impl Orchestrator {
         self.map.node_by_name(name)
     }
 
+    /// 返回当前地图中可作为目标的 Tag 标识和名称。
+    pub fn tags(&self) -> &[map::MapNode] {
+        &self.map.nodes
+    }
+
     /// 规划两个命名地图目标之间的最小代价路径。
     pub fn shortest_path(&self, from: &str, to: &str) -> Result<Path, OrchestrationError> {
         let start = self.resolve_target(from)?;

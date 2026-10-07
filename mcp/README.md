@@ -4,6 +4,7 @@
 
 | MCP 工具 | Gateway 入口 |
 | --- | --- |
+| `list_tags` | `GET /api/v1/tags`（返回 Tag ID 与地点名称，不含边和权重） |
 | `list_tasks` | `GET /api/v1/tasks` |
 | `create_task` | `POST /api/v1/tasks` |
 | `get_task` | `GET /api/v1/tasks/{id}` |

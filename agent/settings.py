@@ -50,3 +50,23 @@ def max_wait_seconds() -> float:
     if not 0 < value <= 3600:
         raise ValueError("AGENT_MAX_WAIT_SECONDS must be greater than 0 and at most 3600")
     return value
+
+
+def agent_http_host() -> str:
+    """Agent 服务绑定的地址，默认只监听本机。"""
+    value = os.environ.get("AGENT_HTTP_HOST", "127.0.0.1").strip()
+    if not value:
+        raise ValueError("AGENT_HTTP_HOST must not be empty")
+    return value
+
+
+def agent_http_port() -> int:
+    """Agent 服务监听的端口。"""
+    raw = os.environ.get("AGENT_HTTP_PORT", "5010").strip()
+    try:
+        port = int(raw)
+    except ValueError as error:
+        raise ValueError("AGENT_HTTP_PORT must be an integer") from error
+    if not 1 <= port <= 65535:
+        raise ValueError("AGENT_HTTP_PORT must be between 1 and 65535")
+    return port

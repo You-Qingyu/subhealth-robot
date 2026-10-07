@@ -21,6 +21,12 @@ def list_capabilities() -> dict:
 
 
 @mcp.tool()
+async def list_tags() -> dict:
+    """List Tag IDs and place names from Gateway; route edges are not exposed."""
+    return {"tags": await request("GET", "/api/v1/tags")}
+
+
+@mcp.tool()
 async def list_tasks() -> dict:
     """List all Gateway task records as {"tasks": [...]} (no pagination)."""
     return {"tasks": await request("GET", "/api/v1/tasks")}

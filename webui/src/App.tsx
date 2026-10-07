@@ -13,6 +13,7 @@ import { ToastProvider } from "./components/Toast"
 import TaskNew from "./pages/TaskNew"
 import TaskList from "./pages/TaskList"
 import TaskDetail from "./pages/TaskDetail"
+import AgentChat from "./components/AgentChat"
 
 interface AppData {
   refreshKey: number
@@ -96,6 +97,11 @@ function TaskDetailPage() {
   )
 }
 
+function AgentHome() {
+  const { bumpRefresh } = useAppData()
+  return <AgentChat onTaskSubmitted={bumpRefresh} />
+}
+
 function Layout() {
   return (
     <div className="min-h-screen bg-gray-50">
@@ -105,6 +111,9 @@ function Layout() {
           <NavLink to="/tasks" className={tabLinkClass}>
             Tasks
           </NavLink>
+          <NavLink to="/agent" className={tabLinkClass}>
+            Agent
+          </NavLink>
         </div>
       </header>
 
@@ -113,6 +122,7 @@ function Layout() {
           <Route path="/" element={<Navigate to="/tasks" replace />} />
           <Route path="/tasks" element={<TasksHome />} />
           <Route path="/tasks/:taskId" element={<TaskDetailPage />} />
+          <Route path="/agent" element={<AgentHome />} />
           <Route path="*" element={<Navigate to="/tasks" replace />} />
         </Routes>
       </main>

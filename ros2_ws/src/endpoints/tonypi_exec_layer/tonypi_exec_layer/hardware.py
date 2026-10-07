@@ -23,7 +23,7 @@ class HeadScanSample:
 
 
 class HeadScanStage(str, Enum):
-    MOVING = 'moving'
+    SETTLED = 'settled'
     CONFIRMATION = 'confirmation'
 
 
@@ -80,7 +80,7 @@ class NavigationHardware:
     def scan_head(
         self, tag_id: int, on_sample: Callable[[HeadScanSample], None],
     ) -> HeadScanResult:
-        """机身静止扫描；运动帧只作为候选，停稳后的帧决定方向。"""
+        """机身静止扫描；每段转头停稳后取新帧，候选再用新帧确认。"""
         direction = None
         self._check_interruption()
         self._head.align()
@@ -107,14 +107,9 @@ class NavigationHardware:
         for pulse in pulses:
             self._check_interruption()
             self._head.turn_to(pulse)
-            started_at = time.monotonic()
-            while True:
-                frame = self._camera.observe_tags(started_at, self._check_interruption)
-                on_sample(HeadScanSample(frame, pulse, HeadScanStage.MOVING, side))
-                if tag_id in frame.poses or time.monotonic() - started_at >= HEAD_SCAN_MOVE_TIME_S:
-                    break
-                self._check_interruption()
-            self._wait(HEAD_SCAN_MOVE_TIME_S + HEAD_SETTLE_TIME_S - (time.monotonic() - started_at))
+            self._wait(HEAD_SCAN_MOVE_TIME_S + HEAD_SETTLE_TIME_S)
+            frame = self._camera.observe_tags(time.monotonic(), self._check_interruption)
+            on_sample(HeadScanSample(frame, pulse, HeadScanStage.SETTLED, side))
             if tag_id not in frame.poses:
                 continue
             confirmed = self._camera.observe_tags(time.monotonic(), self._check_interruption)

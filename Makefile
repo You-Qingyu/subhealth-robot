@@ -122,9 +122,7 @@ run:
 	    source /opt/ros/$(ROS_DISTRO)/setup.bash && \
 	    source "$(ROS_BUILD_ROOT)/install/setup.bash" && \
     ROS_DOMAIN_ID="$(ROS_DOMAIN_ID)" RMW_IMPLEMENTATION="$(RMW_IMPLEMENTATION)" TONYPI_ROOT="$(TONYPI_ROOT)" ros2 run "$$ros_package" "$$ros_executable" $(if $(strip $(ENDPOINT_ARGS)),--ros-args $(ENDPOINT_ARGS),) ;; \
-	  *" agent "*) if [ "$(IN_CONTAINER)" = "1" ]; then \
-	    agent/.venv/bin/python agent/server.py; \
-	  else $(DEV) make run agent; fi ;; \
+	  *" agent "*) agent/.venv/bin/python agent/server.py ;; \
 	  *) echo "usage: make run server | make run endpoint DEVICE_TYPE=<device-type> | make run agent" >&2; exit 2 ;; \
 	esac
 

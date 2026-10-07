@@ -47,7 +47,8 @@ Tag ID 映射为固定动作。导航按当前观测执行有限动作，并在�
 每次用于决策的 `observe_tags()` 都在真机上保存逐帧回放。日志中的
 `tonypi_replay directory=...` 给出本次任务的目录，默认为
 `/tmp/tonypi-replays/<随机任务目录>`，可通过 ROS 参数 `replay_directory` 修改。
-打开其中的 `index.html` 可逐帧浏览或播放，也可查看对应的 JSON 和原始图片；
+直接用浏览器打开其中的 `index.html` 可逐帧浏览或播放，帧旁的关键观测和动作
+信息已写入页面，不需要本地 HTTP 服务，也可查看同名 JSON 中的完整记录和原始图片；
 回放目录中的标注图用于查看相机画面，`raw/` 保存识别所用的原图。
 
 ## AprilTag 位姿观测（离线、只读）

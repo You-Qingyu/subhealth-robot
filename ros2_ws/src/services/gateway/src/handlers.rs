@@ -1,7 +1,10 @@
 use orchestration::OrchestrationError;
 use platform::TaskId;
 
-use crate::{dto::CreateTask, state::AppState};
+use crate::{
+    dto::{CreateTask, SensorReading},
+    state::AppState,
+};
 use axum::{
     extract::{Path, State, WebSocketUpgrade},
     http::StatusCode,
@@ -11,6 +14,17 @@ use axum::{
 
 pub async fn list_tags(State(state): State<AppState>) -> Json<Vec<map::MapNode>> {
     Json(state.tags().await)
+}
+
+pub async fn list_sensors(State(state): State<AppState>) -> Json<Vec<platform::SensorDescriptor>> {
+    Json(state.sensors())
+}
+
+pub async fn get_sensor(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<SensorReading>, StatusCode> {
+    state.sensor(&id).map(Json).ok_or(StatusCode::NOT_FOUND)
 }
 
 pub async fn list_tasks(

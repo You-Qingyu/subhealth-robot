@@ -528,6 +528,8 @@ dependencies = [
  "map",
  "orchestration",
  "platform",
+ "ros_sensor_client",
+ "sensor",
  "serde",
  "serde_json",
  "task_repository",
@@ -1010,6 +1012,20 @@ dependencies = [
  "ament_rs 0.3.0",
  "cargo_toml",
  "rosidl_runtime_rs",
+]
+
+[[package]]
+name = "ros_sensor_client"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "platform",
+ "rclrs",
+ "ros-env",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "thiserror",
 ]
 
 [[package]]
@@ -1694,6 +1710,10 @@ version = "0.1.0"
 
 [[patch.unused]]
 name = "platform"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "ros_sensor_client"
 version = "0.1.0"
 
 [[patch.unused]]

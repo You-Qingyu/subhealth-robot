@@ -1,5 +1,5 @@
-use platform::{DeviceId, Primitive, Task, TaskId};
-use serde::Deserialize;
+use platform::{DeviceId, Primitive, SensorDescriptor, SensorSample, Task, TaskId};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
 /// HTTP 创建任务请求对应的输入模型。
@@ -27,4 +27,13 @@ impl CreateTask {
             deadline_ms: self.deadline_ms,
         }
     }
+}
+
+#[derive(Debug, Serialize)]
+/// 单个传感器的查询结果：静态描述加最新采样。
+pub struct SensorReading {
+    /// 传感器静态描述。
+    pub descriptor: SensorDescriptor,
+    /// 最新采样；尚未收到任何数据时为 `null`。
+    pub sample: Option<SensorSample>,
 }

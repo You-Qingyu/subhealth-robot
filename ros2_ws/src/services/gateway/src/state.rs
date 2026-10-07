@@ -6,12 +6,13 @@ use std::sync::{
 use futures_util::StreamExt;
 use orchestration::{OrchestrationError, Orchestrator};
 use platform::{
-    ExecutionFeedback, ExecutionResult, ExecutionSession, SystemEvent, TaskId, TaskRecord,
-    TaskRepository,
+    ExecutionFeedback, ExecutionResult, ExecutionSession, SensorDescriptor, SensorId, SystemEvent,
+    TaskId, TaskRecord, TaskRepository,
 };
+use sensor::SensorRegistry;
 use tokio::sync::{broadcast, Mutex};
 
-use crate::dto::CreateTask;
+use crate::dto::{CreateTask, SensorReading};
 
 #[derive(Clone)]
 /// Gateway 共享的运行时状态。
@@ -26,11 +27,16 @@ pub struct AppStateInner {
     event_sequence: AtomicU64,
     events: broadcast::Sender<(u64, SystemEvent)>,
     orchestrator: Mutex<Orchestrator>,
+    sensors: Arc<SensorRegistry>,
 }
 
 impl AppState {
-    /// 创建 Gateway 状态并绑定共享的编排器和 Repository。
-    pub fn new(orchestrator: Orchestrator, repository: Arc<dyn TaskRepository>) -> Self {
+    /// 创建 Gateway 状态并绑定共享的编排器、Repository 和传感器注册表。
+    pub fn new(
+        orchestrator: Orchestrator,
+        repository: Arc<dyn TaskRepository>,
+        sensors: Arc<SensorRegistry>,
+    ) -> Self {
         let (events, _) = broadcast::channel(128);
         Self {
             inner: Arc::new(AppStateInner {
@@ -38,6 +44,7 @@ impl AppState {
                 event_sequence: AtomicU64::new(0),
                 events,
                 orchestrator: Mutex::new(orchestrator),
+                sensors,
             }),
         }
     }
@@ -45,6 +52,19 @@ impl AppState {
     /// 返回当前地图中的 Tag 标识和名称，不暴露路径边与权重。
     pub async fn tags(&self) -> Vec<map::MapNode> {
         self.inner.orchestrator.lock().await.tags().to_vec()
+    }
+
+    /// 返回已注册的全部传感器描述。
+    pub fn sensors(&self) -> Vec<SensorDescriptor> {
+        self.inner.sensors.descriptors()
+    }
+
+    /// 读取指定传感器的描述和最新采样；传感器未注册时返回 `None`。
+    pub fn sensor(&self, id: &str) -> Option<SensorReading> {
+        let sensor_id = SensorId(id.to_owned());
+        let descriptor = self.inner.sensors.descriptor(&sensor_id)?;
+        let sample = self.inner.sensors.latest(&sensor_id);
+        Some(SensorReading { descriptor, sample })
     }
 
     /// 提交任务，并在接受后异步消费执行会话。

@@ -42,6 +42,12 @@ def task_path(task_id: str) -> str:
     return f"/api/v1/tasks/{quote(task_id, safe='')}"
 
 
+def sensor_path(sensor_id: str) -> str:
+    if not sensor_id:
+        raise GatewayError("sensor_id must not be empty")
+    return f"/api/v1/sensors/{quote(sensor_id, safe='')}"
+
+
 async def next_event(timeout_seconds: float) -> dict:
     """Receive one live event; the Gateway does not retain or replay events."""
     if not 0 < timeout_seconds <= 60:

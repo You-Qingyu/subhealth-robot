@@ -32,4 +32,4 @@ Linux/macOS：在本目录执行 bash start.sh，按终端打印的地址访问�
    演示已在运行时，也可在本目录执行：
     docker compose --profile agent -f compose.yaml up -d agent
 3. 智能体会把该指令发送给 .env 中配置的大模型，解析为任务后下发执行。
-4. 此功能需要外网和有效密钥。不配置时可忽略本节，WebUI 演示不受影响。
+4. 此功能需要外网和有效密钥。不配置时可忽略本节，WebUI 中Sensor、Tasks页面不受影响。

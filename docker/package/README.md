@@ -20,10 +20,10 @@ bash docker/package/build-and-export.sh
 
 ```bash
 cd docker/package
-zip rtos-subhealth.zip compose.yaml start.sh start.bat .env.example README.txt rtos-subhealth-images.tar.gz
+zip start-presentation.zip compose.yaml start.sh start.bat .env.example README.txt rtos-subhealth-images.tar.gz
 ```
 
-`zip` 只会新增或替换包内条目、不会删除已存在的条目，所以重新打包前必须先删掉旧 zip，否则早前版本放进包里的文件（如 `README.md`）会残留在新 zip 中。打包前确认 `rtos-subhealth-images.tar.gz` 已由 `build-and-export.sh` 生成，可用 `unzip -l rtos-subhealth.zip` 检查包内清单是否恰好是上述 6 个文件。
+`zip` 只会新增或替换包内条目、不会删除已存在的条目，所以重新打包前必须先删掉旧 zip，否则早前版本放进包里的文件（如 `README.md`）会残留在新 zip 中。打包前确认 `rtos-subhealth-images.tar.gz` 已由 `build-and-export.sh` 生成，可用 `unzip -l start-presentation.zip` 检查包内清单是否恰好是上述 6 个文件。
 
 ## 启动演示
 

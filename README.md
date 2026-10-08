@@ -9,13 +9,16 @@ Orchestration 管理任务生命周期，Execution 通过 ROS action client 将�
 ```text
 WebUI → Gateway → Orchestration → Execution → ROS action server
                         ↘ Task Repository
+ROS 话题 → ros_sensor_client → SensorRegistry → Gateway → MCP → 智能体
 ```
 
 Gateway、Orchestration、Execution、Repository 和 Sensor 服务位于设备无关的控制
 平面。当前 Execution 根据任务的 `device_id` 查找
-`ROS_TASK_CLIENT_CONFIG` 指定的 YAML 注册表，并使用其中的 `action_name`；仓库
-目前没有独立的 `adapters/` 目录；正式设备 endpoint 位于控制平面之外，
-通过 ROS action 与控制平面连接，厂商 SDK 不进入上层服务。
+`ROS_TASK_CLIENT_CONFIG` 指定的 YAML 注册表，并使用其中的 `action_name`；
+Sensor 根据 `ROS_SENSOR_CONFIG` 指定的 YAML 订阅传感器话题，查询接口经
+`/api/v1/sensors` 暴露给 MCP。仓库目前没有独立的 `adapters/` 目录；正式设备
+endpoint 位于控制平面之外，通过 ROS action 与控制平面连接，厂商 SDK 不进入
+上层服务。
 
 ## 目录
 
@@ -24,8 +27,9 @@ Gateway、Orchestration、Execution、Repository 和 Sensor 服务位于设备�
  docs/decisions/                      当前架构决策和设计动机
 docs/guide/                          使用指南、ROS mock 和设备 endpoint 指南
 ros2_ws/config/devices.yaml           ROS 设备/action 注册表示例
+ros2_ws/config/sensors.yaml           传感器订阅注册表示例
 ros2_ws/config/maps/default.yaml      默认地图配置
-ros2_ws/src/control_plane/            ROS task client 控制平面适配
+ros2_ws/src/control_plane/            ROS task/sensor client 控制平面适配
 ros2_ws/src/interfaces/               ROS action/message 接口定义
 ros2_ws/src/mocks/                    mock execution 和 sensor 节点
 ros2_ws/src/endpoints/                正式设备 endpoint 节点
@@ -74,17 +78,20 @@ workspace。`make humble` 和 `make jazzy` 都会在镜像构建完成后进入�
 容器。默认 Gateway 监听 `0.0.0.0:5000`，可通过 `GATEWAY_HTTP_PORT` 覆盖。
 
 启动服务端默认使用相对于仓库根目录的
-`ROS_TASK_CLIENT_CONFIG=ros2_ws/config/devices.yaml`。也可以在仓库根目录创建
+`ROS_TASK_CLIENT_CONFIG=ros2_ws/config/devices.yaml` 和
+`ROS_SENSOR_CONFIG=ros2_ws/config/sensors.yaml`。也可以在仓库根目录创建
 `.env` 设置本地默认值（该文件不应提交），例如：
 
 ```dotenv
 ROS_TASK_CLIENT_CONFIG=ros2_ws/config/devices.yaml
+ROS_SENSOR_CONFIG=ros2_ws/config/sensors.yaml
 GATEWAY_HTTP_PORT=5000
 MAP_CONFIG=ros2_ws/config/maps/default.yaml
 ```
 
-直接使用 `cargo run -p gateway` 时也必须设置 `ROS_TASK_CLIENT_CONFIG` 和
-`MAP_CONFIG`；推荐使用 `make run server`，它会传递开发环境的默认配置。
+直接使用 `cargo run -p gateway` 时也必须设置 `ROS_TASK_CLIENT_CONFIG`、
+`ROS_SENSOR_CONFIG` 和 `MAP_CONFIG`；推荐使用 `make run server`，它会传递
+开发环境的默认配置。
 
 命令行参数仍可覆盖 `.env`，例如：
 

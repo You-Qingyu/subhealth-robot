@@ -182,6 +182,12 @@ class NavigationController:
     ) -> NavigationResult:
         """依次到达目标，整条路线共用 deadline。"""
         self._next_forward_action = FORWARD_LEFT_ACTION
+        try:
+            self._hardware.prepare()
+        except MotionInterrupted as error:
+            return NavigationResult(False, error.error_code, str(error))
+        except MotionExecutionError as error:
+            return NavigationResult(False, 'MOTION_FAILED', str(error))
         for index, tag_id in enumerate(target_tags):
             result = self._navigate_to_tag(tag_id, index, deadline_unix_ms)
             if not result.succeeded:

@@ -10,7 +10,35 @@ from .head import (
     HEAD_SCAN_LEFT_PULSES, HEAD_SCAN_MOVE_TIME_S, HEAD_SCAN_RIGHT_PULSES,
     HEAD_SETTLE_TIME_S, HeadAligner,
 )
+<<<<<<< feat.meng.webui_agent_chat
+from .motion import FiniteMotionRunner, MotionExecutionError, MotionInterrupted
+
+
+@dataclass(frozen=True)
+class HeadScanSample:
+    frame: FrameObservation
+    pulse: int
+    stage: 'HeadScanStage'
+    scan_direction: 'TurnDirection'
+    turn_direction: 'TurnDirection | None' = None
+
+
+class HeadScanStage(str, Enum):
+    SETTLED = 'settled'
+    CONFIRMATION = 'confirmation'
+
+
+class TurnDirection(str, Enum):
+    LEFT = 'left'
+    RIGHT = 'right'
+
+
+@dataclass(frozen=True)
+class HeadScanResult:
+    direction: TurnDirection | None
+=======
 from .motion import FiniteMotionRunner, MotionInterrupted
+>>>>>>> feat.duckran.publish
 
 
 @dataclass(frozen=True)
@@ -55,21 +83,26 @@ class NavigationHardware:
         self._allowed_actions = allowed_actions
         self._is_cancel_requested = is_cancel_requested
         self._deadline_unix_ms = deadline_unix_ms
+        self._head_aligned = False
+
+    def prepare(self) -> None:
+        """任务开始时回正云台；后续由扫描状态维护正前方不变量。"""
+        self._check_interruption()
+        self._head_aligned = False
+        self._head.align()
+        self._head_aligned = True
+        self._check_interruption()
 
     def observe_tags(self) -> FrameObservation:
-        """回正云台，读取当前新帧的所有 Tag。"""
-        self._check_interruption()
-        self._head.align()
-        self._check_interruption()
+        """云台已回正时读取新的正前方画面。"""
+        self._require_front()
         return self._camera.observe_tags(time.monotonic(), self._check_interruption)
 
     def execute_action(self, action_group: str) -> None:
         """在云台正前方执行一个经允许的有限动作组。"""
         if action_group not in self._allowed_actions:
             raise ValueError(f'未允许的动作组: {action_group}')
-        self._check_interruption()
-        self._head.align()
-        self._check_interruption()
+        self._require_front()
         self._motion.execute(
             action_group,
             self._is_cancel_requested,
@@ -80,10 +113,10 @@ class NavigationHardware:
     def scan_head(
         self, tag_id: int, on_sample: Callable[[HeadScanSample], None],
     ) -> HeadScanResult:
-        """机身静止扫描；运动帧只作为候选，停稳后的帧决定方向。"""
+        """机身静止扫描；每段转头停稳后取新帧，候选再用新帧确认。"""
         direction = None
-        self._check_interruption()
-        self._head.align()
+        self._require_front()
+        self._head_aligned = False
         try:
             direction = self._scan_side(
                 tag_id, TurnDirection.RIGHT, HEAD_SCAN_RIGHT_PULSES, on_sample,
@@ -97,8 +130,14 @@ class NavigationHardware:
                 )
         finally:
             self._head.align()
+            self._head_aligned = True
         self._check_interruption()
         return HeadScanResult(direction)
+
+    def _require_front(self) -> None:
+        self._check_interruption()
+        if not self._head_aligned:
+            raise MotionExecutionError('云台未完成正前方置位')
 
     def _scan_side(
         self, tag_id: int, side: TurnDirection, pulses: tuple[int, ...],
@@ -107,14 +146,9 @@ class NavigationHardware:
         for pulse in pulses:
             self._check_interruption()
             self._head.turn_to(pulse)
-            started_at = time.monotonic()
-            while True:
-                frame = self._camera.observe_tags(started_at, self._check_interruption)
-                on_sample(HeadScanSample(frame, pulse, HeadScanStage.MOVING, side))
-                if tag_id in frame.poses or time.monotonic() - started_at >= HEAD_SCAN_MOVE_TIME_S:
-                    break
-                self._check_interruption()
-            self._wait(HEAD_SCAN_MOVE_TIME_S + HEAD_SETTLE_TIME_S - (time.monotonic() - started_at))
+            self._wait(HEAD_SCAN_MOVE_TIME_S + HEAD_SETTLE_TIME_S)
+            frame = self._camera.observe_tags(time.monotonic(), self._check_interruption)
+            on_sample(HeadScanSample(frame, pulse, HeadScanStage.SETTLED, side))
             if tag_id not in frame.poses:
                 continue
             confirmed = self._camera.observe_tags(time.monotonic(), self._check_interruption)

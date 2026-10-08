@@ -1,5 +1,7 @@
 import { useEffect, useRef } from "react"
 import { Link } from "react-router-dom"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 import { useAgentChat } from "../hooks/useAgentChat"
 import TaskStatusBadge from "./TaskStatusBadge"
 import type { ChatMessage, TaskRef, ToolCallView } from "../types/agent"
@@ -133,9 +135,14 @@ function MessageRow({ message }: { message: ChatMessage }) {
     <div className="flex justify-start">
       <div className="max-w-[88%] w-full bg-white border rounded-2xl rounded-bl-sm px-4 py-3 space-y-2.5">
         {message.content && (
-          <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap break-words">
-            {message.content}
-          </p>
+          <div className="text-sm text-gray-800 leading-relaxed break-words">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={markdownComponents}
+            >
+              {message.content}
+            </ReactMarkdown>
+          </div>
         )}
         {message.toolCalls.map((tool, index) => (
           <ToolCallBlock key={`${tool.callId}-${index}`} tool={tool} />
@@ -242,4 +249,72 @@ function formatResult(result: unknown): string {
   const text =
     typeof result === "string" ? result : JSON.stringify(result, null, 2)
   return formatPreview(text, RESULT_PREVIEW_LIMIT)
+}
+
+const markdownComponents = {
+  p: ({ children }: { children?: React.ReactNode }) => (
+    <p className="my-1.5 first:mt-0 last:mb-0">{children}</p>
+  ),
+  strong: ({ children }: { children?: React.ReactNode }) => (
+    <strong className="font-semibold text-gray-900">{children}</strong>
+  ),
+  em: ({ children }: { children?: React.ReactNode }) => (
+    <em className="italic">{children}</em>
+  ),
+  code: ({ children }: { children?: React.ReactNode }) => (
+    <code className="bg-gray-100 text-gray-800 rounded px-1 py-0.5 text-xs font-mono">
+      {children}
+    </code>
+  ),
+  pre: ({ children }: { children?: React.ReactNode }) => (
+    <pre className="bg-gray-100 rounded-md p-2.5 my-2 overflow-x-auto text-xs">
+      {children}
+    </pre>
+  ),
+  ul: ({ children }: { children?: React.ReactNode }) => (
+    <ul className="list-disc list-inside my-1.5 space-y-0.5">{children}</ul>
+  ),
+  ol: ({ children }: { children?: React.ReactNode }) => (
+    <ol className="list-decimal list-inside my-1.5 space-y-0.5">{children}</ol>
+  ),
+  li: ({ children }: { children?: React.ReactNode }) => (
+    <li className="text-gray-700">{children}</li>
+  ),
+  a: ({ href, children }: { href?: string; children?: React.ReactNode }) => (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-blue-600 hover:underline"
+    >
+      {children}
+    </a>
+  ),
+  blockquote: ({ children }: { children?: React.ReactNode }) => (
+    <blockquote className="border-l-2 border-gray-300 pl-3 my-2 text-gray-600">
+      {children}
+    </blockquote>
+  ),
+  table: ({ children }: { children?: React.ReactNode }) => (
+    <div className="overflow-x-auto my-2">
+      <table className="text-xs border-collapse w-full">{children}</table>
+    </div>
+  ),
+  th: ({ children }: { children?: React.ReactNode }) => (
+    <th className="border border-gray-200 px-2 py-1 bg-gray-50 text-left font-medium">
+      {children}
+    </th>
+  ),
+  td: ({ children }: { children?: React.ReactNode }) => (
+    <td className="border border-gray-200 px-2 py-1">{children}</td>
+  ),
+  h1: ({ children }: { children?: React.ReactNode }) => (
+    <h1 className="text-base font-semibold mt-3 mb-1.5">{children}</h1>
+  ),
+  h2: ({ children }: { children?: React.ReactNode }) => (
+    <h2 className="text-sm font-semibold mt-2.5 mb-1">{children}</h2>
+  ),
+  h3: ({ children }: { children?: React.ReactNode }) => (
+    <h3 className="text-sm font-medium mt-2 mb-1">{children}</h3>
+  ),
 }

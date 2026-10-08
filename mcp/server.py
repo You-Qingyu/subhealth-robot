@@ -3,7 +3,7 @@
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
-from gateway_client import next_event, request, task_path
+from gateway_client import next_event, request, sensor_path, task_path
 from settings import capabilities
 
 
@@ -24,6 +24,25 @@ def list_capabilities() -> dict:
 async def list_tags() -> dict:
     """List Tag IDs and place names from Gateway; route edges are not exposed."""
     return {"tags": await request("GET", "/api/v1/tags")}
+
+
+@mcp.tool()
+async def list_sensors() -> dict:
+    """List available sensors with id, kind and unit, returned as {"sensors": [...]}.
+
+    Sensor readings are not included; use read_sensor for the latest value.
+    """
+    return {"sensors": await request("GET", "/api/v1/sensors")}
+
+
+@mcp.tool()
+async def read_sensor(sensor_id: str) -> dict:
+    """Read the latest sample of one sensor by its id from list_sensors.
+
+    Returns {"descriptor": ..., "sample": ...}; sample is null until the
+    sensor's publisher has sent the first message. Unknown ids raise an error.
+    """
+    return await request("GET", sensor_path(sensor_id))
 
 
 @mcp.tool()

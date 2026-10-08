@@ -7,7 +7,7 @@ from typing import Callable
 
 MOTION_POLL_INTERVAL_S = 0.05
 MOTION_STOP_TIMEOUT_S = 5.0
-MOTION_SETTLE_TIME_S = 0.3
+MOTION_SETTLE_TIME_S = 0.75
 
 
 class MotionExecutionError(RuntimeError):

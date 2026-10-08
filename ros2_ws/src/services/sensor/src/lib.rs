@@ -28,6 +28,13 @@ impl SensorRegistry {
             .collect()
     }
 
+    /// 返回指定传感器的静态描述；没有 provider 提供该传感器时返回 `None`。
+    pub fn descriptor(&self, id: &SensorId) -> Option<SensorDescriptor> {
+        self.descriptors()
+            .into_iter()
+            .find(|descriptor| &descriptor.id == id)
+    }
+
     /// 返回第一个能提供指定传感器最新值的 provider 的结果。
     pub fn latest(&self, id: &SensorId) -> Option<SensorSample> {
         self.providers

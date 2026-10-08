@@ -1,0 +1,30 @@
+version: 1
+
+ros:
+  node_name: sensor_ingest
+
+sensors:
+  - id: mock_spo2
+    topic: /physio/mock_spo2
+    kind: spo2
+    unit: "%"
+  - id: mock_heart_rate
+    topic: /physio/mock_heart_rate
+    kind: heart_rate
+    unit: bpm
+  - id: mock_bp_systolic
+    topic: /physio/mock_bp_systolic
+    kind: systolic_mmhg
+    unit: mmHg
+  - id: mock_bp_diastolic
+    topic: /physio/mock_bp_diastolic
+    kind: diastolic_mmhg
+    unit: mmHg
+  - id: mock_body_temp
+    topic: /physio/mock_body_temp
+    kind: body_temp_c
+    unit: "°C"
+  - id: mock_respiratory_rate
+    topic: /physio/mock_respiratory_rate
+    kind: respiratory_rate
+    unit: breaths/min

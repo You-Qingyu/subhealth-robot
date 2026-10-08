@@ -11,7 +11,25 @@ ARG UBUNTU_VERSION
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+ARG ROS_APT_MIRROR=auto
+
+RUN set -e; \
+    sources=/etc/apt/sources.list.d/ros2.sources; \
+    if [ "${ROS_APT_MIRROR}" = "auto" ]; then \
+        printf '%s\n' \
+            'URIs: https://mirrors.ustc.edu.cn/ros2/ubuntu' \
+            'URIs: https://mirrors.aliyun.com/ros2/ubuntu' \
+            'URIs: https://mirror.nju.edu.cn/ros2/ubuntu' \
+            'URIs: http://mirrors.hit.edu.cn/ros2/ubuntu' \
+            > /tmp/ros-apt-mirrors; \
+        sed -i -e 's|^Types: .*|Types: deb|' -e '/^URIs:/r /tmp/ros-apt-mirrors' "${sources}"; \
+        rm -f /tmp/ros-apt-mirrors; \
+    else \
+        sed -i -e 's|^Types: .*|Types: deb|' -e "s|^URIs: .*|URIs: ${ROS_APT_MIRROR}|" "${sources}"; \
+    fi; \
+    sed -n '1,6p' "${sources}"
+
+RUN apt-get update -o Acquire::Retries=3 && apt-get install -y --no-install-recommends \
       build-essential cmake git curl pkg-config libclang-dev sudo \
       python3-pip python3-pytest python3-vcstool \
       ros-${ROS_DISTRO}-rmw-cyclonedds-cpp \

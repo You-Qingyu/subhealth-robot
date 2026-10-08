@@ -177,6 +177,8 @@ __pycache__/
 
 # Package output
 /dist/
+/docker/package/*.tar.gz
+/docker/package/*.zip
 
 # Local development configuration
 .env

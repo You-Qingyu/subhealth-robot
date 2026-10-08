@@ -22,6 +22,23 @@ goto start_demo
 docker compose -f compose.yaml up -d
 if errorlevel 1 goto fail
 
+set "AGENT_KEY=%OPENAI_API_KEY%"
+if defined AGENT_KEY goto start_agent
+if not exist ".env" goto stop_agent
+for /f "usebackq eol=# tokens=1,* delims==" %%A in (".env") do if /i "%%A"=="OPENAI_API_KEY" set "AGENT_KEY=%%~B"
+if not defined AGENT_KEY goto stop_agent
+goto start_agent
+
+:stop_agent
+docker compose --profile agent -f compose.yaml stop agent >nul 2>&1
+goto web_port
+
+:start_agent
+echo 检测到 OPENAI_API_KEY，正在启动智能体服务...
+docker compose --profile agent -f compose.yaml up -d agent
+if errorlevel 1 goto fail
+
+:web_port
 set "PORT=8080"
 if not defined WEB_PORT goto read_env_file
 set "PORT=%WEB_PORT%"

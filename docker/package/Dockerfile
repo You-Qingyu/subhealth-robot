@@ -25,6 +25,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     RMW_IMPLEMENTATION=rmw_cyclonedds_cpp \
     GATEWAY_HTTP_PORT=5000 \
     ROS_TASK_CLIENT_CONFIG=/opt/app/ros2_ws/config/devices.yaml \
+    ROS_SENSOR_CONFIG=/opt/app/ros2_ws/config/sensors.yaml \
     MAP_CONFIG=/opt/app/ros2_ws/config/maps/default.yaml \
     GATEWAY_URL=http://127.0.0.1:5000
 
@@ -64,6 +65,9 @@ RUN chmod +x /usr/local/bin/rtos-subhealth-entrypoint \
     && /opt/app/mcp/.venv/bin/pip install --no-cache-dir /opt/app/mcp \
     && python3 -m venv /opt/app/agent/.venv \
     && /opt/app/agent/.venv/bin/pip install --no-cache-dir /opt/app/agent
+
+# Gateway 只按 RUST_LOG 输出日志；默认 info 让 docker logs 可用于排障。
+ENV RUST_LOG=info
 
 EXPOSE 5000
 ENTRYPOINT ["/usr/local/bin/rtos-subhealth-entrypoint"]

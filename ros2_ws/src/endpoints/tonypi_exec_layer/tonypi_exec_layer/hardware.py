@@ -10,7 +10,6 @@ from .head import (
     HEAD_SCAN_LEFT_PULSES, HEAD_SCAN_MOVE_TIME_S, HEAD_SCAN_RIGHT_PULSES,
     HEAD_SETTLE_TIME_S, HeadAligner,
 )
-<<<<<<< feat.meng.webui_agent_chat
 from .motion import FiniteMotionRunner, MotionExecutionError, MotionInterrupted
 
 
@@ -25,33 +24,6 @@ class HeadScanSample:
 
 class HeadScanStage(str, Enum):
     SETTLED = 'settled'
-    CONFIRMATION = 'confirmation'
-
-
-class TurnDirection(str, Enum):
-    LEFT = 'left'
-    RIGHT = 'right'
-
-
-@dataclass(frozen=True)
-class HeadScanResult:
-    direction: TurnDirection | None
-=======
-from .motion import FiniteMotionRunner, MotionInterrupted
->>>>>>> feat.duckran.publish
-
-
-@dataclass(frozen=True)
-class HeadScanSample:
-    frame: FrameObservation
-    pulse: int
-    stage: 'HeadScanStage'
-    scan_direction: 'TurnDirection'
-    turn_direction: 'TurnDirection | None' = None
-
-
-class HeadScanStage(str, Enum):
-    MOVING = 'moving'
     CONFIRMATION = 'confirmation'
 
 

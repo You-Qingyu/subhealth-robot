@@ -1,0 +1,17 @@
+services:
+  backend:
+    build:
+      context: ../..
+      dockerfile: docker/package/Dockerfile
+      target: backend
+      args:
+        ROS_BUILD_IMAGE: ${ROS_BUILD_IMAGE:-ros-dev:jazzy}
+        ROS_APT_MIRROR: ${ROS_APT_MIRROR:-auto}
+
+  frontend:
+    build:
+      context: ../..
+      dockerfile: docker/package/Dockerfile
+      target: frontend
+      args:
+        ROS_BUILD_IMAGE: ${ROS_BUILD_IMAGE:-ros-dev:jazzy}

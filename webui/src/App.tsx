@@ -13,6 +13,7 @@ import { ToastProvider } from "./components/Toast"
 import TaskNew from "./pages/TaskNew"
 import TaskList from "./pages/TaskList"
 import TaskDetail from "./pages/TaskDetail"
+import Sensors from "./pages/Sensors"
 import AgentChat from "./components/AgentChat"
 
 interface AppData {
@@ -108,6 +109,9 @@ function Layout() {
       <header className="bg-white border-b px-6 py-3 flex items-center justify-between">
         <h1 className="text-xl font-bold text-gray-800">Robot Task Console</h1>
         <div className="flex gap-4 items-center">
+          <NavLink to="/sensors" className={tabLinkClass}>
+            Sensor
+          </NavLink>
           <NavLink to="/tasks" className={tabLinkClass}>
             Tasks
           </NavLink>
@@ -123,6 +127,7 @@ function Layout() {
           <Route path="/tasks" element={<TasksHome />} />
           <Route path="/tasks/:taskId" element={<TaskDetailPage />} />
           <Route path="/agent" element={<AgentHome />} />
+          <Route path="/sensors" element={<Sensors />} />
           <Route path="*" element={<Navigate to="/tasks" replace />} />
         </Routes>
       </main>
